@@ -2,7 +2,7 @@
 
 The Vector Graph RAG frontend provides an interactive visualization of the graph retrieval process, allowing users to explore each step of the pipeline and inspect individual entities and relations in real time.
 
-<!-- TODO: Add UI screenshot via GitHub image hosting -->
+![Query result with graph visualization](assets/screenshots/query-result.png)
 
 ## Overview
 
@@ -37,25 +37,25 @@ flowchart TD
 
 Vector similarity search finds the initial set of entities and relations that best match the user's query. These appear as **orange nodes** on the graph canvas. This is the starting point for graph exploration — the "seeds" from which the subgraph will grow.
 
-<!-- TODO: Add UI screenshot via GitHub image hosting -->
+![Step 1: Retrieve Seeds — orange nodes show initial matches](assets/screenshots/step1-seeds.png)
 
 ### Step 2: Expand Subgraph
 
 Graph traversal expands outward from the seed entities, discovering connected entities and relations through the knowledge graph structure stored in Milvus. Newly discovered nodes appear as **blue nodes**, while seed nodes remain orange. This step captures the broader context surrounding the initial matches.
 
-<!-- TODO: Add UI screenshot via GitHub image hosting -->
+![Step 2: Expand Subgraph — blue nodes show discovered entities](assets/screenshots/step2-expand.png)
 
 ### Step 3: LLM Rerank
 
 The LLM evaluates all candidate relations from the expanded subgraph and selects the most relevant ones for answering the query. **Green edges** highlight the chosen paths, while **gray dashed lines** indicate relations that were considered but not selected. This single-pass reranking avoids the cost of iterative retrieval.
 
-<!-- TODO: Add UI screenshot via GitHub image hosting -->
+![Step 3: LLM Rerank — green edges show selected relations](assets/screenshots/step3-rerank.png)
 
 ### Step 4: Generate Answer
 
 Using the selected relations as context, the LLM generates the final natural language answer. The answer appears in the **Answer Panel** alongside the graph visualization, giving users full transparency into what information was used.
 
-<!-- TODO: Add UI screenshot via GitHub image hosting -->
+![Step 4: Generate Answer — final result with answer panel](assets/screenshots/step4-answer.png)
 
 ---
 

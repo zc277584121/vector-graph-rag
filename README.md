@@ -17,6 +17,10 @@
 
 > 💡 Encode entities and relations as vectors in [Milvus](https://milvus.io/), replace iterative LLM agents with a single reranking pass — achieve state-of-the-art multi-hop retrieval at a fraction of the operational and computational cost.
 
+<p align="center">
+  <img src="docs/assets/screenshots/query-result.png" alt="Vector Graph RAG — interactive graph visualization of a multi-hop query" width="800">
+</p>
+
 ## ✨ Features
 
 - **No Graph Database Required** — Pure vector search with Milvus, no Neo4j or other graph databases needed
