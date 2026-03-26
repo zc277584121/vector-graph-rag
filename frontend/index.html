@@ -1319,7 +1319,7 @@
 
 <h1 id="frontend-visualization">Frontend &amp; Visualization<a class="headerlink" href="#frontend-visualization" title="Permanent link">&para;</a></h1>
 <p>The Vector Graph RAG frontend provides an interactive visualization of the graph retrieval process, allowing users to explore each step of the pipeline and inspect individual entities and relations in real time.</p>
-<p><img alt="Query result with graph visualization" src="../assets/screenshots/query-result.png" /></p>
+<p><img alt="Vector Graph RAG Demo" src="https://github.com/user-attachments/assets/1185b651-ed72-4408-9dcd-25a74b12835b" /></p>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <p>The frontend is built with the following technology stack:</p>
 <table>
@@ -1377,16 +1377,16 @@
     S3 --&gt; S4["4. Generate Answer\nFinal response"]</code></pre>
 <h3 id="step-1-retrieve-seeds">Step 1: Retrieve Seeds<a class="headerlink" href="#step-1-retrieve-seeds" title="Permanent link">&para;</a></h3>
 <p>Vector similarity search finds the initial set of entities and relations that best match the user's query. These appear as <strong>orange nodes</strong> on the graph canvas. This is the starting point for graph exploration — the "seeds" from which the subgraph will grow.</p>
-<p><img alt="Step 1: Retrieve Seeds — orange nodes show initial matches" src="../assets/screenshots/step1-seeds.png" /></p>
+<p><img alt="Step 1: Retrieve Seeds — orange nodes show initial matches" src="https://github.com/user-attachments/assets/ed58be59-f5ae-4ad6-9226-60da5cbc5df3" /></p>
 <h3 id="step-2-expand-subgraph">Step 2: Expand Subgraph<a class="headerlink" href="#step-2-expand-subgraph" title="Permanent link">&para;</a></h3>
 <p>Graph traversal expands outward from the seed entities, discovering connected entities and relations through the knowledge graph structure stored in Milvus. Newly discovered nodes appear as <strong>blue nodes</strong>, while seed nodes remain orange. This step captures the broader context surrounding the initial matches.</p>
-<p><img alt="Step 2: Expand Subgraph — blue nodes show discovered entities" src="../assets/screenshots/step2-expand.png" /></p>
+<p><img alt="Step 2: Expand Subgraph — blue nodes show discovered entities" src="https://github.com/user-attachments/assets/c9576c74-1788-4e87-89d9-d2cdcd8ebd08" /></p>
 <h3 id="step-3-llm-rerank">Step 3: LLM Rerank<a class="headerlink" href="#step-3-llm-rerank" title="Permanent link">&para;</a></h3>
 <p>The LLM evaluates all candidate relations from the expanded subgraph and selects the most relevant ones for answering the query. <strong>Green edges</strong> highlight the chosen paths, while <strong>gray dashed lines</strong> indicate relations that were considered but not selected. This single-pass reranking avoids the cost of iterative retrieval.</p>
-<p><img alt="Step 3: LLM Rerank — green edges show selected relations" src="../assets/screenshots/step3-rerank.png" /></p>
+<p><img alt="Step 3: LLM Rerank — green edges show selected relations" src="https://github.com/user-attachments/assets/55a785a6-a925-4798-99af-400f23168d89" /></p>
 <h3 id="step-4-generate-answer">Step 4: Generate Answer<a class="headerlink" href="#step-4-generate-answer" title="Permanent link">&para;</a></h3>
 <p>Using the selected relations as context, the LLM generates the final natural language answer. The answer appears in the <strong>Answer Panel</strong> alongside the graph visualization, giving users full transparency into what information was used.</p>
-<p><img alt="Step 4: Generate Answer — final result with answer panel" src="../assets/screenshots/step4-answer.png" /></p>
+<p><img alt="Step 4: Generate Answer — final result with answer panel" src="https://github.com/user-attachments/assets/8cc8e594-aed7-4ef5-8c3b-e5ff54275b64" /></p>
 <hr />
 <h2 id="color-coding">Color Coding<a class="headerlink" href="#color-coding" title="Permanent link">&para;</a></h2>
 <p>The graph uses a consistent color scheme to indicate the role of each node and edge at each step of the pipeline:</p>
