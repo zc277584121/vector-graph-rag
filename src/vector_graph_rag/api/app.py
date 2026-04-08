@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from vector_graph_rag import VectorGraphRAG
+from vector_graph_rag import VectorGraphRAG, __version__
 from vector_graph_rag.config import Settings, get_settings
 from vector_graph_rag.storage.milvus import MilvusStore
 from vector_graph_rag.graph.graph import Graph
@@ -32,7 +32,7 @@ from vector_graph_rag.models import Triplet
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str = Field(default="ok", description="Service status")
-    version: str = Field(default="0.1.0", description="API version")
+    version: str = Field(default=__version__, description="API version")
 
 
 class GraphInfo(BaseModel):
@@ -258,7 +258,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app = FastAPI(
         title="Vector Graph RAG API",
         description="Graph RAG using pure vector search with Milvus",
-        version="0.1.0",
+        version=__version__,
     )
 
     # Add CORS middleware for frontend
@@ -300,7 +300,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/health", response_model=HealthResponse, tags=["System"])
     async def health_check():
         """Check if the service is running."""
-        return HealthResponse(status="ok", version="0.1.0")
+        return HealthResponse(status="ok", version=__version__)
 
     @app.get("/graphs", response_model=ListGraphsResponse, tags=["System"])
     async def list_graphs():

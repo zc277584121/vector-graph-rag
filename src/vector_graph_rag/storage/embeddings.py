@@ -156,10 +156,26 @@ class OpenAIEmbedding:
 
         self.model_name = model_name
         self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self._retry_decorator = retry(
+
+        # Wrap the API call with retry logic
+        @retry(
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=1, min=2, max=10),
         )
+        def _call_api(texts):
+            return self.client.embeddings.create(model=self.model_name, input=texts)
+
+        self._call_api = _call_api
+
+        # Detect embedding dimension lazily
+        self._dimension: Optional[int] = None
+
+    def _get_dimension(self) -> int:
+        """Get embedding dimension by making a test call."""
+        if self._dimension is None:
+            response = self._call_api(["test"])
+            self._dimension = len(response.data[0].embedding)
+        return self._dimension
 
     def encode(
         self,
@@ -182,9 +198,9 @@ class OpenAIEmbedding:
         valid_texts = [texts[i] for i in valid_indices]
 
         if not valid_texts:
-            return np.zeros((len(texts), 1536))
+            return np.zeros((len(texts), self._get_dimension()))
 
-        response = self.client.embeddings.create(model=self.model_name, input=valid_texts)
+        response = self._call_api(valid_texts)
         sorted_data = sorted(response.data, key=lambda x: x.index)
         valid_embeddings = np.array([item.embedding for item in sorted_data])
 

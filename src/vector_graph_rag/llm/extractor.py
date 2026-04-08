@@ -304,10 +304,10 @@ class EntityExtractor:
                 query = row.get(query_col, '')
                 triples_str = row.get('triples', '{}')
                 try:
-                    triples_data = eval(triples_str) if isinstance(triples_str, str) else triples_str
+                    triples_data = json.loads(triples_str) if isinstance(triples_str, str) else triples_str
                     if isinstance(triples_data, dict) and 'named_entities' in triples_data:
                         self.ner_tsv_cache[query] = triples_data['named_entities']
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError):
                     pass
             print(f"Loaded {len(self.ner_tsv_cache)} NER entries from {cache_file}")
         except Exception as e:
