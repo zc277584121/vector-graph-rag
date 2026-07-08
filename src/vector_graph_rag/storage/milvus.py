@@ -79,6 +79,11 @@ class MilvusStore:
         parts = [f.strip() for f in filters if f and f.strip()]
         return " and ".join(f"({part})" for part in parts)
 
+    @staticmethod
+    def _quote_string(value: str) -> str:
+        """Quote a string value for Milvus filter expressions."""
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
     def _create_collection(
         self,
         collection_name: str,
@@ -467,6 +472,32 @@ class MilvusStore:
         )
         return results
 
+    def _get_entities_by_texts(
+        self,
+        entity_texts: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get entities by exact text.
+
+        This is a private helper for incremental graph updates.
+
+        Args:
+            entity_texts: Entity texts to look up.
+
+        Returns:
+            Mapping from entity text to the first matching entity record.
+        """
+        entities_by_text: Dict[str, Dict[str, Any]] = {}
+        for text in entity_texts:
+            results = self.client.query(
+                collection_name=self.entity_collection,
+                filter=f"text == {self._quote_string(text)}",
+                output_fields=["id", "text", "relation_ids", "passage_ids"],
+            )
+            if results:
+                entities_by_text[text] = results[0]
+        return entities_by_text
+
     def _get_relations_by_ids(
         self,
         relation_ids: List[str],
@@ -503,10 +534,45 @@ class MilvusStore:
         )
         return results
 
+    def _get_relations_by_texts(
+        self,
+        relation_texts: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get relations by exact text.
+
+        This is a private helper for incremental graph updates.
+
+        Args:
+            relation_texts: Relation texts to look up.
+
+        Returns:
+            Mapping from relation text to the first matching relation record.
+        """
+        relations_by_text: Dict[str, Dict[str, Any]] = {}
+        for text in relation_texts:
+            results = self.client.query(
+                collection_name=self.relation_collection,
+                filter=f"text == {self._quote_string(text)}",
+                output_fields=[
+                    "id",
+                    "text",
+                    "entity_ids",
+                    "passage_ids",
+                    "subject",
+                    "predicate",
+                    "object",
+                ],
+            )
+            if results:
+                relations_by_text[text] = results[0]
+        return relations_by_text
+
     def get_passages_by_ids(
         self,
         passage_ids: List[str],
         filter: Optional[str] = None,
+        output_fields: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get passages by their IDs.
@@ -514,6 +580,7 @@ class MilvusStore:
         Args:
             passage_ids: List of passage IDs (strings).
             filter: Optional Milvus filter expression for passage metadata.
+            output_fields: Optional output fields. Defaults to graph adjacency fields.
 
         Returns:
             List of passage data with id, text, entity_ids, and relation_ids.
@@ -527,7 +594,27 @@ class MilvusStore:
         results = self.client.query(
             collection_name=self.passage_collection,
             filter=filter_expr,
-            output_fields=["id", "text", "entity_ids", "relation_ids"],
+            output_fields=output_fields or ["id", "text", "entity_ids", "relation_ids"],
+        )
+        return results
+
+    def get_passages_by_document_id(self, document_id: str) -> List[Dict[str, Any]]:
+        """
+        Get passages that belong to a source document.
+
+        Source-document ownership is stored in passage metadata under
+        ``document_id`` by VectorGraphRAG.upsert_document().
+
+        Args:
+            document_id: Source document ID.
+
+        Returns:
+            Matching passage records with graph adjacency metadata.
+        """
+        results = self.client.query(
+            collection_name=self.passage_collection,
+            filter=f"document_id == {self._quote_string(document_id)}",
+            output_fields=["id", "text", "entity_ids", "relation_ids", "document_id"],
         )
         return results
 

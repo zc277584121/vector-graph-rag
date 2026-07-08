@@ -131,6 +131,10 @@ rag = VectorGraphRAG(
 
 Ingest plain text strings. Each string is stored as a passage; optionally, knowledge-graph triplets are extracted automatically.
 
+!!! warning "Full rebuild"
+    This method delegates to `add_documents()` and rebuilds the full knowledge base.
+    Use [`upsert_document`](#upsert_document) for document-level incremental updates.
+
 ```python
 def add_texts(
     texts: List[str],
@@ -169,6 +173,9 @@ print(f"Extracted {len(result.entities)} entities, {len(result.relations)} relat
 
 Ingest [LangChain `Document`](https://python.langchain.com/docs/modules/data_connection/document_loaders/) objects directly.
 
+!!! warning "Full rebuild"
+    `add_documents()` keeps its original behavior for backward compatibility: it drops and recreates the Milvus collections for this graph before indexing the provided documents. Use [`rebuild_documents`](#rebuild_documents) when you want this behavior explicitly, or [`upsert_document`](#upsert_document) for incremental create/update.
+
 ```python
 def add_documents(
     documents: List[Document],
@@ -198,9 +205,36 @@ result = rag.add_documents(docs)
 
 ---
 
+#### `rebuild_documents`
+
+Explicitly rebuild the full knowledge base from a list of LangChain `Document` objects.
+
+```python
+def rebuild_documents(
+    documents: List[Document],
+    extract_triplets: bool = True,
+    show_progress: bool = True,
+) -> ExtractionResult
+```
+
+| Parameter | Description |
+|---|---|
+| `documents` | Documents that replace the current graph contents. |
+| `extract_triplets` | If `True`, extract knowledge-graph triplets from each document. |
+| `show_progress` | Show a progress bar. |
+
+**Returns:** [`ExtractionResult`](#extractionresult)
+
+Use this for initial bulk indexing, benchmark rebuilds, or when you intentionally want a full refresh.
+
+---
+
 #### `add_documents_with_triplets`
 
 Ingest documents where triplets have already been extracted externally. Use this when you have your own extraction pipeline or pre-annotated data.
+
+!!! warning "Full rebuild"
+    This method delegates to `add_documents(..., extract_triplets=False)` and rebuilds the full knowledge base. For pre-extracted triplets in an incremental update, put the triplets in each chunk's `metadata["triplets"]` and call [`upsert_document`](#upsert_document) with `extract_triplets=False`.
 
 ```python
 def add_documents_with_triplets(
@@ -228,6 +262,74 @@ Optional `metadata` is stored on the passage and can be used by query filters.
 
     result = rag.add_documents_with_triplets(docs_with_triplets)
     ```
+
+---
+
+#### `upsert_document`
+
+Incrementally create or replace one source document. A source document can be a file, page, message, or any other business-level object. The `documents` argument contains the parsed chunks/passages for that source document.
+
+```python
+def upsert_document(
+    document_id: str,
+    documents: List[Document],
+    metadata: Optional[Dict[str, Any]] = None,
+    extract_triplets: bool = True,
+    show_progress: bool = True,
+) -> ExtractionResult
+```
+
+| Parameter | Description |
+|---|---|
+| `document_id` | Stable source document ID, such as a file ID or message ID. |
+| `documents` | Parsed chunks/passages for this source document. Missing chunk IDs are generated deterministically from `document_id` and chunk index. |
+| `metadata` | Source-level metadata merged into every chunk. |
+| `extract_triplets` | If `True`, extract triplets from each chunk. If triplets are already in `metadata["triplets"]`, set this to `False`. |
+| `show_progress` | Show a progress bar. |
+
+**Returns:** [`ExtractionResult`](#extractionresult)
+
+If `document_id` does not exist, the method inserts a new document. If it already exists, the method deletes the previous chunks for that document, updates graph references, and inserts the new chunks without rebuilding unrelated documents.
+
+```python
+from langchain_core.documents import Document
+
+chunks = [
+    Document(
+        page_content="Alpha owns the blue database.",
+        metadata={"triplets": [["Alpha", "owns", "blue database"]]},
+    )
+]
+
+rag.upsert_document(
+    document_id="sharepoint:file-123",
+    documents=chunks,
+    metadata={"tenant_id": "team_a", "source": "sharepoint"},
+    extract_triplets=False,
+)
+```
+
+---
+
+#### `delete_document`
+
+Incrementally delete one source document and remove graph references that only belonged to that document.
+
+```python
+def delete_document(document_id: str) -> bool
+```
+
+| Parameter | Description |
+|---|---|
+| `document_id` | Stable source document ID previously used with `upsert_document()`. |
+
+**Returns:** `True` if at least one passage was deleted; otherwise `False`.
+
+Shared entities and relations are preserved when other documents still reference them. Orphaned relations and entities are removed.
+
+```python
+deleted = rag.delete_document("sharepoint:file-123")
+```
 
 ---
 

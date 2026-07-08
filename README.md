@@ -30,6 +30,7 @@
 - **Knowledge-Intensive Friendly** — Optimized for domains with dense factual content: legal, finance, medical, literature, etc.
 - **Zero Configuration** — Uses Milvus Lite by default, works out of the box with a single file
 - **Multi-hop Reasoning** — Subgraph expansion enables complex multi-hop question answering
+- **Incremental Document Updates** — Upsert or delete one source document without rebuilding unrelated data
 - **State-of-the-Art Performance** — 87.8% avg Recall@5 on multi-hop QA benchmarks, outperforming HippoRAG
 
 ## 📦 Installation
@@ -96,6 +97,40 @@ rag.add_documents_with_triplets([
     },
 ])
 ```
+
+</details>
+
+<details>
+<summary>🔄 <b>Incremental document updates</b> — click to expand</summary>
+
+Use `upsert_document()` when a source file, message, or page is created or modified.
+The method replaces only that source document's chunks and graph references.
+
+```python
+from langchain_core.documents import Document
+
+rag.upsert_document(
+    document_id="sharepoint:file-123",
+    documents=[
+        Document(
+            page_content="Einstein developed relativity at Princeton.",
+            metadata={
+                "triplets": [
+                    ["Einstein", "developed", "relativity"],
+                    ["Einstein", "worked at", "Princeton"],
+                ],
+            },
+        ),
+    ],
+    metadata={"source": "sharepoint"},
+    extract_triplets=False,
+)
+
+rag.delete_document("sharepoint:file-123")
+```
+
+`add_documents()` is kept for backward compatibility and rebuilds the full knowledge base.
+For explicit full refreshes, use `rebuild_documents()`.
 
 </details>
 
