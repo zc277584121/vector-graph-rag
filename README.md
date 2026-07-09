@@ -30,7 +30,6 @@
 - **Knowledge-Intensive Friendly** — Optimized for domains with dense factual content: legal, finance, medical, literature, etc.
 - **Zero Configuration** — Uses Milvus Lite by default, works out of the box with a single file
 - **Multi-hop Reasoning** — Subgraph expansion enables complex multi-hop question answering
-- **Incremental Document Updates** — Upsert or delete one source document without rebuilding unrelated data
 - **State-of-the-Art Performance** — 87.8% avg Recall@5 on multi-hop QA benchmarks, outperforming HippoRAG
 
 ## 📦 Installation

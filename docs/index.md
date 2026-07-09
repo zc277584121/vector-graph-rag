@@ -57,12 +57,6 @@ Subgraph expansion discovers connections across documents for complex multi-hop 
 </div>
 <div class="feature-card" markdown>
 
-### :material-file-sync: Incremental Updates
-Upsert or delete one source document without rebuilding unrelated documents.
-
-</div>
-<div class="feature-card" markdown>
-
 ### :material-cog: Zero Configuration
 Milvus Lite by default — works as a local file, no server setup needed. Just `pip install` and go.
 
