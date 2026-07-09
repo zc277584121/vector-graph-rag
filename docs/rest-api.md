@@ -155,7 +155,7 @@ curl -X DELETE http://localhost:8000/graph/my_graph
 Indexes documents by rebuilding the selected graph. Optionally extracts knowledge graph triplets from the text using the configured LLM.
 
 !!! warning "Full rebuild"
-    This endpoint uses the Python full-rebuild ingestion path. Calling it replaces the current graph contents for the selected `graph_name`. Document-level incremental upsert/delete is currently available through the Python API via `upsert_document()` and `delete_document()`.
+    This endpoint uses the Python full-rebuild ingestion path. Calling it replaces the current graph contents for the selected `graph_name`. Document-level incremental upsert/delete is currently available through the Python API via `upsert_documents()` and `delete_documents()`.
 
 **Query Parameters**
 

@@ -104,7 +104,7 @@ from vector_graph_rag import VectorGraphRAG
 
 rag = VectorGraphRAG()  # reads OPENAI_API_KEY from environment
 
-rag.add_texts([
+rag.rebuild_texts([
     "Albert Einstein developed the theory of relativity.",
     "The theory of relativity revolutionized our understanding of space and time.",
 ])
@@ -114,7 +114,7 @@ print(result.answer)
 ```
 
 !!! note "Ingestion semantics"
-    The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned for removal in v0.3.0. Use `rebuild_documents()` for full refreshes, and use `upsert_document()` / `delete_document()` when a source file, page, or message changes later.
+    The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned for removal in v1.0.0. Use `rebuild_texts()`, `rebuild_documents()`, or `rebuild_documents_with_triplets()` for full refreshes, and use `upsert_documents()` / `delete_documents()` when a source file, page, or message changes later.
 
 !!! tip "Getting Started"
     See the [Getting Started](getting-started.md) guide for installation and configuration options.

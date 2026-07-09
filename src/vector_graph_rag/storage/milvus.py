@@ -603,7 +603,7 @@ class MilvusStore:
         Get passages that belong to a source document.
 
         Source-document ownership is stored in passage metadata under
-        ``document_id`` by VectorGraphRAG.upsert_document().
+        ``document_id`` by VectorGraphRAG.upsert_documents().
 
         Args:
             document_id: Source document ID.

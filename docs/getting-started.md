@@ -37,7 +37,7 @@ from vector_graph_rag import VectorGraphRAG
 
 rag = VectorGraphRAG()  # reads OPENAI_API_KEY from environment
 
-rag.add_texts([
+rag.rebuild_texts([
     "Albert Einstein developed the theory of relativity.",
     "The theory of relativity revolutionized our understanding of space and time.",
 ])
@@ -127,12 +127,12 @@ finance_rag = VectorGraphRAG(milvus_uri="./data.db", collection_prefix="finance"
 ## Adding Documents
 
 !!! warning "Full rebuild vs incremental updates"
-    `add_texts()`, `add_documents()`, and `add_documents_with_triplets()` rebuild the full knowledge base for the current collection prefix. These legacy convenience APIs are planned for removal in v0.3.0. Use `rebuild_documents()` for full refreshes. For source-document create/update/delete flows, use `upsert_document()` and `delete_document()`.
+    `add_texts()`, `add_documents()`, and `add_documents_with_triplets()` rebuild the full knowledge base for the current collection prefix. These legacy convenience APIs are planned for removal in v1.0.0. Use `rebuild_texts()`, `rebuild_documents()`, or `rebuild_documents_with_triplets()` for full refreshes. For source-document create/update/delete flows, use `upsert_documents()` and `delete_documents()`.
 
 ### From Text Strings
 
 ```python
-rag.add_texts([
+rag.rebuild_texts([
     "Einstein developed relativity at Princeton.",
     "The theory changed modern physics.",
 ])
@@ -143,7 +143,7 @@ rag.add_texts([
 Skip LLM extraction if you already have knowledge graph triplets:
 
 ```python
-rag.add_documents_with_triplets([
+rag.rebuild_documents_with_triplets([
     {
         "passage": "Einstein developed relativity at Princeton.",
         "triplets": [
@@ -177,12 +177,12 @@ rag.rebuild_documents(result.documents, extract_triplets=True)
 
 ### Incremental Updates
 
-Use `upsert_document()` when a source file, page, or message is created or modified. The method replaces only that source document's chunks and graph references.
+Use `upsert_documents()` when a source file, page, or message is created or modified. The method replaces only that source document's chunks and graph references.
 
 ```python
 from langchain_core.documents import Document
 
-rag.upsert_document(
+rag.upsert_documents(
     document_id="sharepoint:file-123",
     documents=[
         Document(
@@ -199,7 +199,7 @@ rag.upsert_document(
     extract_triplets=False,
 )
 
-rag.delete_document("sharepoint:file-123")
+rag.delete_documents("sharepoint:file-123")
 ```
 
 !!! note "Consistency model"

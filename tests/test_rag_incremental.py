@@ -80,12 +80,12 @@ def doc(text: str, triplets: list[list[str]], id: str | None = None) -> Document
     return Document(page_content=text, metadata={"triplets": triplets}, id=id)
 
 
-def test_upsert_document_adds_without_rebuilding_existing_documents():
+def test_upsert_documents_adds_without_rebuilding_existing_documents():
     """Upsert a new document without removing documents already in the graph."""
     rag, milvus_uri = with_temp_rag("incremental_add")
 
     try:
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_alpha",
             [
                 doc(
@@ -96,7 +96,7 @@ def test_upsert_document_adds_without_rebuilding_existing_documents():
             extract_triplets=False,
             show_progress=False,
         )
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_beta",
             [
                 doc(
@@ -117,12 +117,12 @@ def test_upsert_document_adds_without_rebuilding_existing_documents():
         remove_temp_milvus_file(milvus_uri)
 
 
-def test_upsert_document_replaces_only_target_document_and_cleans_orphans():
+def test_upsert_documents_replaces_only_target_document_and_cleans_orphans():
     """Replace one document and clean graph records that only belonged to it."""
     rag, milvus_uri = with_temp_rag("incremental_replace")
 
     try:
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_alpha",
             [
                 doc(
@@ -135,7 +135,7 @@ def test_upsert_document_replaces_only_target_document_and_cleans_orphans():
         )
         alpha_passage_id = rag._store.get_passages_by_document_id("file_alpha")[0]["id"]
 
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_beta",
             [
                 doc(
@@ -147,7 +147,7 @@ def test_upsert_document_replaces_only_target_document_and_cleans_orphans():
             show_progress=False,
         )
 
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_alpha",
             [
                 doc(
@@ -188,19 +188,19 @@ def test_upsert_document_replaces_only_target_document_and_cleans_orphans():
         remove_temp_milvus_file(milvus_uri)
 
 
-def test_delete_document_cascades_and_preserves_shared_graph_records():
+def test_delete_documents_cascades_and_preserves_shared_graph_records():
     """Delete one document while preserving shared relation/entity records."""
     rag, milvus_uri = with_temp_rag("incremental_delete")
 
     try:
         shared_triplet = [["Alpha", "founded", "Acme"]]
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_alpha",
             [doc("Alpha founded Acme in source A.", shared_triplet)],
             extract_triplets=False,
             show_progress=False,
         )
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_beta",
             [doc("Alpha founded Acme in source B.", shared_triplet)],
             extract_triplets=False,
@@ -211,7 +211,7 @@ def test_delete_document_cascades_and_preserves_shared_graph_records():
         relation = rag._store._get_relations_by_texts(["alpha founded acme"])["alpha founded acme"]
         assert len(relation["passage_ids"]) == 2
 
-        assert rag.delete_document("file_alpha") is True
+        assert rag.delete_documents("file_alpha") is True
         assert rag._store.get_passages_by_document_id("file_alpha") == []
 
         relation = rag._store._get_relations_by_texts(["alpha founded acme"])["alpha founded acme"]
@@ -220,20 +220,20 @@ def test_delete_document_cascades_and_preserves_shared_graph_records():
         assert alpha_entity["passage_ids"] == [beta_passage_id]
         assert alpha_entity["relation_ids"] == [relation["id"]]
 
-        assert rag.delete_document("file_beta") is True
+        assert rag.delete_documents("file_beta") is True
         assert rag._store._get_relations_by_texts(["alpha founded acme"]) == {}
         assert rag._store._get_entities_by_texts(["alpha"]) == {}
-        assert rag.delete_document("file_missing") is False
+        assert rag.delete_documents("file_missing") is False
     finally:
         remove_temp_milvus_file(milvus_uri)
 
 
-def test_upsert_document_supports_metadata_filter_query_end_to_end():
+def test_upsert_documents_supports_metadata_filter_query_end_to_end():
     """Use upserted document metadata to filter graph query results."""
     rag, milvus_uri = with_temp_rag("incremental_query_filter")
 
     try:
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_alpha",
             [
                 doc(
@@ -245,7 +245,7 @@ def test_upsert_document_supports_metadata_filter_query_end_to_end():
             extract_triplets=False,
             show_progress=False,
         )
-        rag.upsert_document(
+        rag.upsert_documents(
             "file_beta",
             [
                 doc(

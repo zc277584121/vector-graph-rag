@@ -465,9 +465,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                     doc_data["metadata"] = request.metadatas[i]
                 documents_with_triplets.append(doc_data)
 
-            result = rag.add_documents_with_triplets(documents_with_triplets, show_progress=False)
+            result = rag.rebuild_documents_with_triplets(
+                documents_with_triplets, show_progress=False
+            )
         else:
-            result = rag.add_texts(
+            result = rag.rebuild_texts(
                 request.documents,
                 ids=request.ids,
                 metadatas=request.metadatas,
@@ -519,7 +521,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         rag = get_rag(request.graph_name)
 
         # Add documents to graph
-        result = rag.add_documents(
+        result = rag.rebuild_documents(
             documents=load_result.documents,
             extract_triplets=request.extract_triplets,
             show_progress=False,
@@ -585,7 +587,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             rag = get_rag(graph_name)
 
             # Add documents to graph
-            result = rag.add_documents(
+            result = rag.rebuild_documents(
                 documents=load_result.documents,
                 extract_triplets=extract_triplets,
                 show_progress=False,

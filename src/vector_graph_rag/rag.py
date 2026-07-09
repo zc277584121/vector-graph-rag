@@ -5,6 +5,7 @@ Main Vector Graph RAG class with user-friendly API.
 import hashlib
 import logging
 import uuid
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 from vector_graph_rag.config import Settings
@@ -41,12 +42,12 @@ class VectorGraphRAG:
         >>> # Initialize
         >>> rag = VectorGraphRAG()
         >>>
-        >>> # Add documents
-        >>> documents = [
+        >>> # Rebuild from texts
+        >>> texts = [
         ...     "Einstein was a physicist who developed relativity.",
         ...     "Relativity revolutionized our understanding of space and time.",
         ... ]
-        >>> rag.add_documents(documents)
+        >>> rag.rebuild_texts(texts)
         >>>
         >>> # Query
         >>> result = rag.query("What did Einstein develop?")
@@ -59,7 +60,7 @@ class VectorGraphRAG:
     Quick Start:
         >>> from vector_graph_rag import VectorGraphRAG
         >>> rag = VectorGraphRAG()
-        >>> rag.add_documents(["Your text here..."])
+        >>> rag.rebuild_texts(["Your text here..."])
         >>> answer = rag.query("Your question?").answer
     """
 
@@ -620,14 +621,13 @@ class VectorGraphRAG:
         Add text strings to the knowledge base.
 
         Warning:
-            This method delegates to add_documents() and rebuilds the full
-            knowledge base. Use upsert_document() for document-level
-            incremental create/update. This legacy convenience method is
-            planned for removal in v0.3.0; use rebuild_documents() for full
-            refreshes.
+            This legacy convenience method rebuilds the full knowledge base and
+            is planned for removal in v1.0.0. Use rebuild_texts() for full
+            refreshes, or upsert_documents() for document-level incremental
+            create/update.
 
         This is a convenience method that converts texts to Document objects
-        and calls add_documents().
+        and calls rebuild_texts().
 
         Args:
             texts: List of text strings.
@@ -651,13 +651,58 @@ class VectorGraphRAG:
             ...     ids=["doc_001", "doc_002"]
             ... )
         """
+        warnings.warn(
+            "add_texts() is deprecated and will be removed in v1.0.0. "
+            "Use rebuild_texts() for full refreshes, or upsert_documents() "
+            "for document-level incremental create/update.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.rebuild_texts(
+            texts,
+            ids=ids,
+            metadatas=metadatas,
+            extract_triplets=extract_triplets,
+            show_progress=show_progress,
+        )
+
+    def rebuild_texts(
+        self,
+        texts: List[str],
+        ids: Optional[List[str]] = None,
+        metadatas: Optional[List[dict]] = None,
+        extract_triplets: bool = True,
+        show_progress: bool = True,
+    ) -> ExtractionResult:
+        """
+        Rebuild the knowledge base from text strings.
+
+        This is a convenience method that converts texts to Document objects
+        and calls rebuild_documents().
+
+        Args:
+            texts: List of text strings.
+            ids: Optional list of IDs. If not provided, UUIDs are generated.
+            metadatas: Optional list of metadata dicts.
+            extract_triplets: Whether to extract triplets using LLM.
+            show_progress: Whether to show progress bars.
+
+        Returns:
+            ExtractionResult with graph statistics for the rebuilt graph.
+
+        Example:
+            >>> rag.rebuild_texts([
+            ...     "Albert Einstein developed the theory of relativity.",
+            ...     "The theory of relativity changed physics forever.",
+            ... ])
+        """
         documents = []
         for i, text in enumerate(texts):
             doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
             metadata = metadatas[i] if metadatas and i < len(metadatas) else {}
             documents.append(Document(page_content=text, metadata=metadata, id=doc_id))
 
-        return self.add_documents(
+        return self.rebuild_documents(
             documents, extract_triplets=extract_triplets, show_progress=show_progress
         )
 
@@ -673,9 +718,9 @@ class VectorGraphRAG:
         Warning:
             This method keeps its original full-rebuild behavior for backward
             compatibility. It drops and recreates the Milvus collections before
-            indexing the provided documents. Use upsert_document() for
+            indexing the provided documents. Use upsert_documents() for
             document-level incremental create/update. This legacy method is
-            planned for removal in v0.3.0; use rebuild_documents() for full
+            planned for removal in v1.0.0; use rebuild_documents() for full
             refreshes.
 
         This method:
@@ -702,6 +747,13 @@ class VectorGraphRAG:
             ...     Document(page_content="Relativity changed physics.", id="doc_002"),
             ... ])
         """
+        warnings.warn(
+            "add_documents() is deprecated and will be removed in v1.0.0. "
+            "Use rebuild_documents() for full refreshes, or upsert_documents() "
+            "for document-level incremental create/update.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.rebuild_documents(
             documents,
             extract_triplets=extract_triplets,
@@ -773,7 +825,7 @@ class VectorGraphRAG:
 
         return self._extraction_result
 
-    def upsert_document(
+    def upsert_documents(
         self,
         document_id: str,
         documents: List[Document],
@@ -802,7 +854,7 @@ class VectorGraphRAG:
             ExtractionResult with graph statistics for this document update.
 
         Example:
-            >>> rag.upsert_document(
+            >>> rag.upsert_documents(
             ...     document_id="sharepoint:file-123",
             ...     documents=[Document(page_content="Einstein developed relativity.")],
             ... )
@@ -832,7 +884,7 @@ class VectorGraphRAG:
             show_progress=show_progress,
         )
 
-        self.delete_document(document_id)
+        self.delete_documents(document_id)
         entity_id_map, relation_id_map = self._insert_incremental_graph(
             builder,
             passage_user_metadatas,
@@ -851,13 +903,13 @@ class VectorGraphRAG:
         self._retriever = None
         return self._extraction_result
 
-    def delete_document(self, document_id: str) -> bool:
+    def delete_documents(self, document_id: str) -> bool:
         """
         Incrementally delete one source document and cascade graph references.
 
         Args:
             document_id: Stable source document ID previously used with
-                         upsert_document().
+                         upsert_documents().
 
         Returns:
             True when at least one passage was deleted, otherwise False.
@@ -930,12 +982,12 @@ class VectorGraphRAG:
         Add documents with pre-extracted triplets.
 
         Warning:
-            This method delegates to add_documents() and rebuilds the full
-            knowledge base. For incremental updates with pre-extracted
-            triplets, store triplets in each chunk's metadata["triplets"] and
-            call upsert_document(..., extract_triplets=False). This legacy
-            convenience method is planned for removal in v0.3.0; use
-            rebuild_documents() for full refreshes.
+            This legacy convenience method rebuilds the full knowledge base and
+            is planned for removal in v1.0.0. Use
+            rebuild_documents_with_triplets() for full refreshes. For
+            incremental updates with pre-extracted triplets, store triplets in
+            each chunk's metadata["triplets"] and call
+            upsert_documents(..., extract_triplets=False).
 
         Use this method if you already have triplets extracted,
         to avoid the LLM triplet extraction step.
@@ -951,6 +1003,47 @@ class VectorGraphRAG:
 
         Example:
             >>> rag.add_documents_with_triplets([
+            ...     {
+            ...         "id": "doc_001",  # optional
+            ...         "passage": "Einstein developed relativity.",
+            ...         "triplets": [
+            ...             ["Einstein", "developed", "relativity"],
+            ...         ],
+            ...     },
+            ... ])
+        """
+        warnings.warn(
+            "add_documents_with_triplets() is deprecated and will be removed in "
+            "v1.0.0. Use rebuild_documents_with_triplets() for full refreshes, "
+            "or upsert_documents(..., extract_triplets=False) for document-level "
+            "incremental create/update.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.rebuild_documents_with_triplets(documents, show_progress=show_progress)
+
+    def rebuild_documents_with_triplets(
+        self,
+        documents: List[dict],
+        show_progress: bool = True,
+    ) -> ExtractionResult:
+        """
+        Rebuild the knowledge base from documents with pre-extracted triplets.
+
+        Use this method if you already have triplets extracted,
+        to avoid the LLM triplet extraction step.
+
+        Args:
+            documents: List of dicts with "passage" and "triplets" keys.
+                       Optionally include "id" for custom document ID.
+                       Each triplet is [subject, predicate, object].
+            show_progress: Whether to show progress bars.
+
+        Returns:
+            ExtractionResult with graph statistics for the rebuilt graph.
+
+        Example:
+            >>> rag.rebuild_documents_with_triplets([
             ...     {
             ...         "id": "doc_001",  # optional
             ...         "passage": "Einstein developed relativity.",
@@ -978,7 +1071,7 @@ class VectorGraphRAG:
                 )
             )
 
-        return self.add_documents(docs, extract_triplets=False, show_progress=show_progress)
+        return self.rebuild_documents(docs, extract_triplets=False, show_progress=show_progress)
 
     def query(
         self,
@@ -1296,7 +1389,7 @@ def create_rag(
     Example:
         >>> from vector_graph_rag import create_rag
         >>> rag = create_rag()
-        >>> rag.add_documents(["Your documents here..."])
+        >>> rag.rebuild_texts(["Your documents here..."])
     """
     return VectorGraphRAG(
         milvus_uri=milvus_uri,

@@ -69,7 +69,7 @@ from vector_graph_rag import VectorGraphRAG
 
 rag = VectorGraphRAG()  # reads OPENAI_API_KEY from environment
 
-rag.add_texts([
+rag.rebuild_texts([
     "Albert Einstein developed the theory of relativity.",
     "The theory of relativity revolutionized our understanding of space and time.",
 ])
@@ -86,7 +86,7 @@ print(result.answer)
 Skip LLM extraction if you already have knowledge graph triplets:
 
 ```python
-rag.add_documents_with_triplets([
+rag.rebuild_documents_with_triplets([
     {
         "passage": "Einstein developed relativity at Princeton.",
         "triplets": [
@@ -102,13 +102,13 @@ rag.add_documents_with_triplets([
 <details>
 <summary>🔄 <b>Incremental document updates</b> — click to expand</summary>
 
-Use `upsert_document()` when a source file, message, or page is created or modified.
+Use `upsert_documents()` when a source file, message, or page is created or modified.
 The method replaces only that source document's chunks and graph references.
 
 ```python
 from langchain_core.documents import Document
 
-rag.upsert_document(
+rag.upsert_documents(
     document_id="sharepoint:file-123",
     documents=[
         Document(
@@ -125,11 +125,12 @@ rag.upsert_document(
     extract_triplets=False,
 )
 
-rag.delete_document("sharepoint:file-123")
+rag.delete_documents("sharepoint:file-123")
 ```
 
 The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned
-for removal in v0.3.0. For explicit full refreshes, use `rebuild_documents()`.
+for removal in v1.0.0. For explicit full refreshes, use `rebuild_texts()`,
+`rebuild_documents()`, or `rebuild_documents_with_triplets()`.
 
 </details>
 

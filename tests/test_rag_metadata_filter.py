@@ -4,6 +4,8 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from vector_graph_rag.config import Settings
 from vector_graph_rag.graph.retriever import GraphRetriever
 from vector_graph_rag.models import Document
@@ -59,41 +61,41 @@ def create_test_rag(milvus_uri: str, collection_prefix: str) -> VectorGraphRAG:
     return rag
 
 
-def test_add_texts_stores_custom_metadata():
-    """Store metadata passed through add_texts."""
+def test_rebuild_texts_stores_custom_metadata():
+    """Store metadata passed through rebuild_texts."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         milvus_uri = f.name
 
     try:
-        rag = create_test_rag(milvus_uri, "metadata_filter_add_texts")
+        rag = create_test_rag(milvus_uri, "metadata_filter_rebuild_texts")
 
-        rag.add_texts(
+        rag.rebuild_texts(
             ["Alpha metadata passage."],
             ids=["doc_alpha"],
-            metadatas=[{"tenant_id": "team_a", "source": "add_texts"}],
+            metadatas=[{"tenant_id": "team_a", "source": "rebuild_texts"}],
             extract_triplets=False,
             show_progress=False,
         )
 
-        assert rag._store.query_passage_ids('source == "add_texts"') == ["doc_alpha"]
+        assert rag._store.query_passage_ids('source == "rebuild_texts"') == ["doc_alpha"]
     finally:
         if os.path.exists(milvus_uri):
             os.unlink(milvus_uri)
 
 
-def test_add_documents_stores_custom_metadata():
+def test_rebuild_documents_stores_custom_metadata():
     """Store metadata passed through Document.metadata."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         milvus_uri = f.name
 
     try:
-        rag = create_test_rag(milvus_uri, "metadata_filter_add_documents")
+        rag = create_test_rag(milvus_uri, "metadata_filter_rebuild_documents")
 
-        rag.add_documents(
+        rag.rebuild_documents(
             [
                 Document(
                     page_content="Alpha document metadata passage.",
-                    metadata={"tenant_id": "team_a", "source": "add_documents"},
+                    metadata={"tenant_id": "team_a", "source": "rebuild_documents"},
                     id="doc_alpha",
                 )
             ],
@@ -101,7 +103,44 @@ def test_add_documents_stores_custom_metadata():
             show_progress=False,
         )
 
-        assert rag._store.query_passage_ids('source == "add_documents"') == ["doc_alpha"]
+        assert rag._store.query_passage_ids('source == "rebuild_documents"') == ["doc_alpha"]
+    finally:
+        if os.path.exists(milvus_uri):
+            os.unlink(milvus_uri)
+
+
+def test_legacy_add_apis_emit_deprecation_warnings():
+    """Legacy add_* APIs warn before delegating to rebuild APIs."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        milvus_uri = f.name
+
+    try:
+        rag = create_test_rag(milvus_uri, "metadata_filter_legacy_add")
+
+        with pytest.deprecated_call(match="add_texts"):
+            rag.add_texts(
+                ["Alpha legacy text."],
+                extract_triplets=False,
+                show_progress=False,
+            )
+
+        with pytest.deprecated_call(match="add_documents"):
+            rag.add_documents(
+                [Document(page_content="Alpha legacy document.")],
+                extract_triplets=False,
+                show_progress=False,
+            )
+
+        with pytest.deprecated_call(match="add_documents_with_triplets"):
+            rag.add_documents_with_triplets(
+                [
+                    {
+                        "passage": "Alpha legacy triplet document.",
+                        "triplets": [["Alpha", "owns", "legacy document"]],
+                    }
+                ],
+                show_progress=False,
+            )
     finally:
         if os.path.exists(milvus_uri):
             os.unlink(milvus_uri)
@@ -115,7 +154,7 @@ def test_query_filter_uses_custom_metadata_end_to_end():
     try:
         rag = create_test_rag(milvus_uri, "metadata_filter_e2e")
 
-        rag.add_documents_with_triplets(
+        rag.rebuild_documents_with_triplets(
             [
                 {
                     "id": "doc_alpha",

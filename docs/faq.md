@@ -43,12 +43,12 @@ Frequently asked questions about Vector Graph RAG — covering when to use it, c
     For very large corpora, consider using a remote Milvus instance rather than Milvus Lite for better performance and scalability.
 
 ??? note "How do I update or delete one source document?"
-    Use `upsert_document()` for source-document create/update and `delete_document()` for delete. A source document can be a file, web page, message, or another business-level object. Its parsed chunks are passed as LangChain `Document` objects.
+    Use `upsert_documents()` for source-document create/update and `delete_documents()` for delete. A source document can be a file, web page, message, or another business-level object. Its parsed chunks are passed as LangChain `Document` objects.
 
     ```python
     from langchain_core.documents import Document
 
-    rag.upsert_document(
+    rag.upsert_documents(
         document_id="file-123",
         documents=[
             Document(
@@ -60,7 +60,7 @@ Frequently asked questions about Vector Graph RAG — covering when to use it, c
         extract_triplets=True,
     )
 
-    rag.delete_document("file-123")
+    rag.delete_documents("file-123")
     ```
 
     Incremental updates replace only the chunks and graph references for that `document_id`. They are not transactionally atomic, so avoid interrupting or concurrently mutating the same collection prefix during an update.

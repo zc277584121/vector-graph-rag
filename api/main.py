@@ -252,7 +252,7 @@ async def add_documents(documents: list[str]):
     """Add documents to the knowledge graph."""
     try:
         rag = get_rag()
-        rag.add_documents(documents)
+        rag.rebuild_texts(documents)
         return {"status": "ok", "message": f"Added {len(documents)} documents"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
