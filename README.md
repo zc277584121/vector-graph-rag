@@ -128,8 +128,8 @@ rag.upsert_document(
 rag.delete_document("sharepoint:file-123")
 ```
 
-`add_documents()` is kept for backward compatibility and rebuilds the full knowledge base.
-For explicit full refreshes, use `rebuild_documents()`.
+The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned
+for removal in v0.3.0. For explicit full refreshes, use `rebuild_documents()`.
 
 </details>
 

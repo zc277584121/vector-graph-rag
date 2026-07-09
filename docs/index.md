@@ -114,7 +114,7 @@ print(result.answer)
 ```
 
 !!! note "Ingestion semantics"
-    `add_texts()` and `add_documents()` are full-rebuild helpers for initial indexing. Use `upsert_document()` and `delete_document()` when a source file, page, or message changes later.
+    The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned for removal in v0.3.0. Use `rebuild_documents()` for full refreshes, and use `upsert_document()` / `delete_document()` when a source file, page, or message changes later.
 
 !!! tip "Getting Started"
     See the [Getting Started](getting-started.md) guide for installation and configuration options.

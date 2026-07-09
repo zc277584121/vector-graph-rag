@@ -127,7 +127,7 @@ finance_rag = VectorGraphRAG(milvus_uri="./data.db", collection_prefix="finance"
 ## Adding Documents
 
 !!! warning "Full rebuild vs incremental updates"
-    `add_texts()`, `add_documents()`, and `add_documents_with_triplets()` rebuild the full knowledge base for the current collection prefix. They are convenient for initial indexing and full refreshes. For source-document create/update/delete flows, use `upsert_document()` and `delete_document()`.
+    `add_texts()`, `add_documents()`, and `add_documents_with_triplets()` rebuild the full knowledge base for the current collection prefix. These legacy convenience APIs are planned for removal in v0.3.0. Use `rebuild_documents()` for full refreshes. For source-document create/update/delete flows, use `upsert_document()` and `delete_document()`.
 
 ### From Text Strings
 

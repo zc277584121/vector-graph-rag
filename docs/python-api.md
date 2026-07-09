@@ -133,7 +133,7 @@ Ingest plain text strings. Each string is stored as a passage; optionally, knowl
 
 !!! warning "Full rebuild"
     This method delegates to `add_documents()` and rebuilds the full knowledge base.
-    Use [`upsert_document`](#upsert_document) for document-level incremental updates.
+    This legacy convenience API is planned for removal in v0.3.0. Use [`rebuild_documents`](#rebuild_documents) for full refreshes, or [`upsert_document`](#upsert_document) for document-level incremental updates.
 
 ```python
 def add_texts(
@@ -174,7 +174,7 @@ print(f"Extracted {len(result.entities)} entities, {len(result.relations)} relat
 Ingest [LangChain `Document`](https://python.langchain.com/docs/modules/data_connection/document_loaders/) objects directly.
 
 !!! warning "Full rebuild"
-    `add_documents()` keeps its original behavior for backward compatibility: it drops and recreates the Milvus collections for this graph before indexing the provided documents. Use [`rebuild_documents`](#rebuild_documents) when you want this behavior explicitly, or [`upsert_document`](#upsert_document) for incremental create/update.
+    `add_documents()` keeps its original behavior for backward compatibility: it drops and recreates the Milvus collections for this graph before indexing the provided documents. This legacy API is planned for removal in v0.3.0. Use [`rebuild_documents`](#rebuild_documents) when you want this behavior explicitly, or [`upsert_document`](#upsert_document) for incremental create/update.
 
 ```python
 def add_documents(
@@ -234,7 +234,7 @@ Use this for initial bulk indexing, benchmark rebuilds, or when you intentionall
 Ingest documents where triplets have already been extracted externally. Use this when you have your own extraction pipeline or pre-annotated data.
 
 !!! warning "Full rebuild"
-    This method delegates to `add_documents(..., extract_triplets=False)` and rebuilds the full knowledge base. For pre-extracted triplets in an incremental update, put the triplets in each chunk's `metadata["triplets"]` and call [`upsert_document`](#upsert_document) with `extract_triplets=False`.
+    This method delegates to `add_documents(..., extract_triplets=False)` and rebuilds the full knowledge base. This legacy convenience API is planned for removal in v0.3.0. For pre-extracted triplets in an incremental update, put the triplets in each chunk's `metadata["triplets"]` and call [`upsert_document`](#upsert_document) with `extract_triplets=False`.
 
 ```python
 def add_documents_with_triplets(

@@ -622,7 +622,9 @@ class VectorGraphRAG:
         Warning:
             This method delegates to add_documents() and rebuilds the full
             knowledge base. Use upsert_document() for document-level
-            incremental create/update.
+            incremental create/update. This legacy convenience method is
+            planned for removal in v0.3.0; use rebuild_documents() for full
+            refreshes.
 
         This is a convenience method that converts texts to Document objects
         and calls add_documents().
@@ -672,7 +674,9 @@ class VectorGraphRAG:
             This method keeps its original full-rebuild behavior for backward
             compatibility. It drops and recreates the Milvus collections before
             indexing the provided documents. Use upsert_document() for
-            document-level incremental create/update.
+            document-level incremental create/update. This legacy method is
+            planned for removal in v0.3.0; use rebuild_documents() for full
+            refreshes.
 
         This method:
         1. Extracts triplets from documents (if enabled)
@@ -929,7 +933,9 @@ class VectorGraphRAG:
             This method delegates to add_documents() and rebuilds the full
             knowledge base. For incremental updates with pre-extracted
             triplets, store triplets in each chunk's metadata["triplets"] and
-            call upsert_document(..., extract_triplets=False).
+            call upsert_document(..., extract_triplets=False). This legacy
+            convenience method is planned for removal in v0.3.0; use
+            rebuild_documents() for full refreshes.
 
         Use this method if you already have triplets extracted,
         to avoid the LLM triplet extraction step.
