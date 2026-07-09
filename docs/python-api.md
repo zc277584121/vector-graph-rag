@@ -544,7 +544,7 @@ print(f"Final passages: {len(result.passages)}")
 
 ## ExtractionResult
 
-A data class returned by all `add_*` methods. It summarises what was ingested and extracted.
+A data class returned by document ingestion methods, including `add_*`, `rebuild_documents()`, and `upsert_document()`. It summarises what was ingested and extracted.
 
 ```python
 from vector_graph_rag import ExtractionResult
@@ -721,7 +721,7 @@ loader_result = importer.import_sources([
 ])
 
 # 3. Ingest into the vector graph
-extraction = rag.add_documents(loader_result.documents)
+extraction = rag.rebuild_documents(loader_result.documents)
 print(f"Ingested {len(extraction.entities)} entities and {len(extraction.relations)} relations")
 
 # 4. Query

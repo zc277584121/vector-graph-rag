@@ -57,6 +57,12 @@ Subgraph expansion discovers connections across documents for complex multi-hop 
 </div>
 <div class="feature-card" markdown>
 
+### :material-file-sync: Incremental Updates
+Upsert or delete one source document without rebuilding unrelated documents.
+
+</div>
+<div class="feature-card" markdown>
+
 ### :material-cog: Zero Configuration
 Milvus Lite by default — works as a local file, no server setup needed. Just `pip install` and go.
 
@@ -112,6 +118,9 @@ rag.add_texts([
 result = rag.query("What did Einstein develop?")
 print(result.answer)
 ```
+
+!!! note "Ingestion semantics"
+    `add_texts()` and `add_documents()` are full-rebuild helpers for initial indexing. Use `upsert_document()` and `delete_document()` when a source file, page, or message changes later.
 
 !!! tip "Getting Started"
     See the [Getting Started](getting-started.md) guide for installation and configuration options.

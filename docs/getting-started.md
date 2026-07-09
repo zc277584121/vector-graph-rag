@@ -126,6 +126,9 @@ finance_rag = VectorGraphRAG(milvus_uri="./data.db", collection_prefix="finance"
 
 ## Adding Documents
 
+!!! warning "Full rebuild vs incremental updates"
+    `add_texts()`, `add_documents()`, and `add_documents_with_triplets()` rebuild the full knowledge base for the current collection prefix. They are convenient for initial indexing and full refreshes. For source-document create/update/delete flows, use `upsert_document()` and `delete_document()`.
+
 ### From Text Strings
 
 ```python
@@ -166,11 +169,41 @@ result = importer.import_sources([
 ])
 
 rag = VectorGraphRAG(milvus_uri="./my_graph.db")
-rag.add_documents(result.documents, extract_triplets=True)
+rag.rebuild_documents(result.documents, extract_triplets=True)
 ```
 
 !!! warning "Loader dependencies"
     Install with `pip install "vector-graph-rag[loaders]"` to enable URL fetching and document conversion.
+
+### Incremental Updates
+
+Use `upsert_document()` when a source file, page, or message is created or modified. The method replaces only that source document's chunks and graph references.
+
+```python
+from langchain_core.documents import Document
+
+rag.upsert_document(
+    document_id="sharepoint:file-123",
+    documents=[
+        Document(
+            page_content="Einstein developed relativity at Princeton.",
+            metadata={
+                "triplets": [
+                    ["Einstein", "developed", "relativity"],
+                    ["Einstein", "worked at", "Princeton"],
+                ],
+            },
+        )
+    ],
+    metadata={"source": "sharepoint"},
+    extract_triplets=False,
+)
+
+rag.delete_document("sharepoint:file-123")
+```
+
+!!! note "Consistency model"
+    Incremental updates perform a document-level cascade across passages, entities, and relations. They are not transactionally atomic, so avoid interrupting or concurrently mutating the same collection prefix during an update.
 
 ## Querying
 

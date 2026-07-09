@@ -81,7 +81,7 @@ importer = DocumentImporter(chunk_size=1500, chunk_overlap=200)
 result = importer.import_sources(["/path/to/novel.pdf"])
 
 rag = VectorGraphRAG(collection_prefix="novel_analysis")
-rag.add_documents(result.documents, extract_triplets=True)
+rag.rebuild_documents(result.documents, extract_triplets=True)
 
 result = rag.query("How does the protagonist's relationship with the antagonist evolve?")
 # Graph captures character interactions across the entire novel
@@ -102,7 +102,7 @@ result = importer.import_sources([
 ])
 
 rag = VectorGraphRAG(collection_prefix="research_survey")
-rag.add_documents(result.documents, extract_triplets=True)
+rag.rebuild_documents(result.documents, extract_triplets=True)
 
 result = rag.query("What methods achieve the best performance on this task?")
 # Graph connects methods, results, and comparisons across papers

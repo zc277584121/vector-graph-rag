@@ -150,7 +150,7 @@ result = importer.import_sources([
 ])
 
 rag = VectorGraphRAG(milvus_uri="./my_graph.db")
-rag.add_documents(result.documents, extract_triplets=True)
+rag.rebuild_documents(result.documents, extract_triplets=True)
 
 result = rag.query("What did Einstein discover?")
 print(result.answer)
