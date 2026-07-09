@@ -2,9 +2,11 @@
 Main Vector Graph RAG class with user-friendly API.
 """
 
+import hashlib
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+import warnings
+from typing import Any, Dict, List, Optional, Tuple
 
 from vector_graph_rag.config import Settings
 from vector_graph_rag.graph.builder import GraphBuilder
@@ -14,9 +16,11 @@ from vector_graph_rag.llm.extractor import TripletExtractor
 from vector_graph_rag.llm.reranker import AnswerGenerator, LLMReranker
 from vector_graph_rag.models import (
     Document,
+    Entity,
     EvictionResult,
     ExtractionResult,
     QueryResult,
+    Relation,
     RerankResult,
     RetrievalDetail,
 )
@@ -38,12 +42,12 @@ class VectorGraphRAG:
         >>> # Initialize
         >>> rag = VectorGraphRAG()
         >>>
-        >>> # Add documents
-        >>> documents = [
+        >>> # Rebuild from texts
+        >>> texts = [
         ...     "Einstein was a physicist who developed relativity.",
         ...     "Relativity revolutionized our understanding of space and time.",
         ... ]
-        >>> rag.add_documents(documents)
+        >>> rag.rebuild_texts(texts)
         >>>
         >>> # Query
         >>> result = rag.query("What did Einstein develop?")
@@ -56,7 +60,7 @@ class VectorGraphRAG:
     Quick Start:
         >>> from vector_graph_rag import VectorGraphRAG
         >>> rag = VectorGraphRAG()
-        >>> rag.add_documents(["Your text here..."])
+        >>> rag.rebuild_texts(["Your text here..."])
         >>> answer = rag.query("Your question?").answer
     """
 
@@ -196,6 +200,376 @@ class VectorGraphRAG:
         metadata["relation_ids"] = relation_ids
         return metadata
 
+    @staticmethod
+    def _merge_unique(existing: List[str], additions: List[str]) -> List[str]:
+        """Merge lists while preserving order and removing duplicates."""
+        merged: List[str] = []
+        seen = set()
+        for item in [*existing, *additions]:
+            if item not in seen:
+                seen.add(item)
+                merged.append(item)
+        return merged
+
+    @staticmethod
+    def _remove_many(values: List[str], removed: set[str]) -> List[str]:
+        """Remove a set of values from a list while preserving order."""
+        return [value for value in values if value not in removed]
+
+    @staticmethod
+    def _make_passage_id(document_id: str, chunk_index: int) -> str:
+        """Create a stable Milvus-safe passage ID for a document chunk."""
+        digest = hashlib.sha256(f"{document_id}:{chunk_index}".encode("utf-8")).hexdigest()
+        return f"doc_{digest[:60]}"
+
+    def _prepare_upsert_documents(
+        self,
+        document_id: str,
+        documents: List[Document],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> List[Document]:
+        """Copy documents and attach source-document metadata for upsert."""
+        if not document_id:
+            raise ValueError("document_id must not be empty.")
+        if not documents:
+            raise ValueError("documents must not be empty.")
+
+        prepared: List[Document] = []
+        base_metadata = dict(metadata or {})
+
+        for chunk_index, doc in enumerate(documents):
+            passage_id = doc.id or self._make_passage_id(document_id, chunk_index)
+            chunk_metadata = {
+                **base_metadata,
+                **dict(doc.metadata or {}),
+                "document_id": document_id,
+                "chunk_index": chunk_index,
+                "chunk_id": passage_id,
+            }
+            prepared.append(
+                Document(
+                    page_content=doc.page_content,
+                    metadata=chunk_metadata,
+                    id=passage_id,
+                )
+            )
+
+        return prepared
+
+    def _remap_extraction_result(
+        self,
+        result: ExtractionResult,
+        entity_id_map: Dict[str, str],
+        relation_id_map: Dict[str, str],
+    ) -> ExtractionResult:
+        """Return an extraction result with stored entity/relation IDs."""
+        entities = [
+            Entity(id=entity_id_map.get(entity.id or "", entity.id), name=entity.name)
+            for entity in result.entities
+        ]
+        relations = [
+            Relation(
+                id=relation_id_map.get(relation.id or "", relation.id),
+                text=relation.text,
+                triplet=relation.triplet,
+                source_passage_ids=relation.source_passage_ids,
+                embedding=relation.embedding,
+            )
+            for relation in result.relations
+        ]
+        entity_to_relation_ids = {
+            entity_id_map.get(entity_id, entity_id): [
+                relation_id_map.get(relation_id, relation_id) for relation_id in relation_ids
+            ]
+            for entity_id, relation_ids in result.entity_to_relation_ids.items()
+        }
+        relation_to_passage_ids = {
+            relation_id_map.get(relation_id, relation_id): passage_ids
+            for relation_id, passage_ids in result.relation_to_passage_ids.items()
+        }
+        return ExtractionResult(
+            documents=result.documents,
+            entities=entities,
+            relations=relations,
+            entity_to_relation_ids=entity_to_relation_ids,
+            relation_to_passage_ids=relation_to_passage_ids,
+        )
+
+    def _build_graph_records(
+        self,
+        builder: GraphBuilder,
+        documents: List[Document],
+        show_progress: bool,
+    ) -> Tuple[
+        ExtractionResult,
+        List[List[float]],
+        List[List[float]],
+        List[List[float]],
+        Dict[str, Dict[str, Any]],
+    ]:
+        """Build graph records and embeddings for a document batch."""
+        result = builder.build_from_documents(documents)
+
+        if show_progress:
+            logger.info("Generating embeddings...")
+
+        entity_texts = builder.get_entity_texts()
+        relation_texts = builder.get_relation_texts()
+        passage_texts = builder.get_passage_texts()
+
+        entity_embeddings = (
+            self._embedding_model.embed_batch(entity_texts, show_progress=show_progress)
+            if entity_texts
+            else []
+        )
+
+        relation_embeddings = (
+            self._embedding_model.embed_batch(relation_texts, show_progress=show_progress)
+            if relation_texts
+            else []
+        )
+
+        passage_embeddings = (
+            self._embedding_model.embed_batch(passage_texts, show_progress=show_progress)
+            if passage_texts
+            else []
+        )
+
+        passage_user_metadatas = {
+            doc.id: self._get_user_passage_metadata(doc) for doc in documents if doc.id is not None
+        }
+
+        return (
+            result,
+            entity_embeddings,
+            relation_embeddings,
+            passage_embeddings,
+            passage_user_metadatas,
+        )
+
+    def _insert_rebuilt_graph(
+        self,
+        builder: GraphBuilder,
+        passage_user_metadatas: Dict[str, Dict[str, Any]],
+        entity_embeddings: List[List[float]],
+        relation_embeddings: List[List[float]],
+        passage_embeddings: List[List[float]],
+        show_progress: bool,
+    ) -> None:
+        """Insert a full graph after collections have been recreated."""
+        entity_metadatas = []
+        for eid in builder.entity_ids:
+            entity_metadatas.append(
+                {
+                    "relation_ids": builder.entity_to_relation_ids.get(eid, []),
+                    "passage_ids": builder.entity_to_passage_ids.get(eid, []),
+                }
+            )
+
+        relation_metadatas = []
+        for rid in builder.relation_ids:
+            triplet = builder.relation_id_to_triplet.get(rid)
+            metadata = {
+                "entity_ids": builder.relation_to_entity_ids.get(rid, []),
+                "passage_ids": builder.relation_to_passage_ids.get(rid, []),
+            }
+            if triplet:
+                metadata["subject"] = triplet.subject
+                metadata["predicate"] = triplet.predicate
+                metadata["object"] = triplet.object
+            relation_metadatas.append(metadata)
+
+        passage_metadatas = []
+        for pid in builder.passage_ids:
+            passage_metadatas.append(
+                self._merge_passage_metadata(
+                    passage_user_metadatas.get(pid, {}),
+                    builder.passage_to_entity_ids.get(pid, []),
+                    builder.passage_to_relation_ids.get(pid, []),
+                )
+            )
+
+        if show_progress:
+            logger.info("Inserting into Milvus...")
+
+        self._store._insert_entities(
+            builder.get_entity_texts(),
+            ids=builder.entity_ids,
+            embeddings=entity_embeddings,
+            metadatas=entity_metadatas,
+            show_progress=show_progress,
+        )
+        self._store._insert_relations(
+            builder.get_relation_texts(),
+            ids=builder.relation_ids,
+            embeddings=relation_embeddings,
+            metadatas=relation_metadatas,
+            show_progress=show_progress,
+        )
+        self._store.insert_passages(
+            builder.get_passage_texts(),
+            ids=builder.passage_ids,
+            embeddings=passage_embeddings,
+            metadatas=passage_metadatas,
+            show_progress=show_progress,
+        )
+
+    def _insert_incremental_graph(
+        self,
+        builder: GraphBuilder,
+        passage_user_metadatas: Dict[str, Dict[str, Any]],
+        entity_embeddings: List[List[float]],
+        relation_embeddings: List[List[float]],
+        passage_embeddings: List[List[float]],
+        document_id: str,
+        show_progress: bool,
+    ) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """Insert graph records for one source document, reusing existing nodes."""
+        entity_texts = builder.get_entity_texts()
+        relation_texts = builder.get_relation_texts()
+        existing_entities = self._store._get_entities_by_texts(entity_texts)
+        existing_relations = self._store._get_relations_by_texts(relation_texts)
+
+        entity_id_map = {
+            eid: existing_entities.get(builder.entities[eid], {}).get("id", eid)
+            for eid in builder.entity_ids
+        }
+        relation_id_map = {
+            rid: existing_relations.get(builder.relations[rid], {}).get("id", rid)
+            for rid in builder.relation_ids
+        }
+
+        existing_passages = self._store.get_passages_by_ids(
+            builder.passage_ids,
+            output_fields=["id", "text", "document_id"],
+        )
+        for passage in existing_passages:
+            if passage.get("document_id") != document_id:
+                raise ValueError(
+                    f'Passage ID "{passage["id"]}" already belongs to another document.'
+                )
+
+        if show_progress:
+            logger.info("Upserting incremental graph into Milvus...")
+
+        entity_text_by_id = {eid: builder.entities[eid] for eid in builder.entity_ids}
+        relation_text_by_id = {rid: builder.relations[rid] for rid in builder.relation_ids}
+
+        entity_insert_ids: List[str] = []
+        entity_insert_texts: List[str] = []
+        entity_insert_embeddings: List[List[float]] = []
+        entity_insert_metadatas: List[Dict[str, Any]] = []
+
+        for index, eid in enumerate(builder.entity_ids):
+            stored_id = entity_id_map[eid]
+            relation_ids = [
+                relation_id_map[relation_id]
+                for relation_id in builder.entity_to_relation_ids.get(eid, [])
+            ]
+            passage_ids = builder.entity_to_passage_ids.get(eid, [])
+            metadata = {
+                "relation_ids": relation_ids,
+                "passage_ids": passage_ids,
+            }
+            existing = existing_entities.get(entity_text_by_id[eid])
+            if existing:
+                self._store._update_entity(
+                    stored_id,
+                    text=entity_text_by_id[eid],
+                    embedding=entity_embeddings[index],
+                    relation_ids=self._merge_unique(existing.get("relation_ids", []), relation_ids),
+                    passage_ids=self._merge_unique(existing.get("passage_ids", []), passage_ids),
+                )
+            else:
+                entity_insert_ids.append(stored_id)
+                entity_insert_texts.append(entity_text_by_id[eid])
+                entity_insert_embeddings.append(entity_embeddings[index])
+                entity_insert_metadatas.append(metadata)
+
+        if entity_insert_ids:
+            self._store._insert_entities(
+                entity_insert_texts,
+                ids=entity_insert_ids,
+                embeddings=entity_insert_embeddings,
+                metadatas=entity_insert_metadatas,
+                show_progress=show_progress,
+            )
+
+        relation_insert_ids: List[str] = []
+        relation_insert_texts: List[str] = []
+        relation_insert_embeddings: List[List[float]] = []
+        relation_insert_metadatas: List[Dict[str, Any]] = []
+
+        for index, rid in enumerate(builder.relation_ids):
+            stored_id = relation_id_map[rid]
+            triplet = builder.relation_id_to_triplet.get(rid)
+            entity_ids = [
+                entity_id_map[entity_id]
+                for entity_id in builder.relation_to_entity_ids.get(rid, [])
+            ]
+            passage_ids = builder.relation_to_passage_ids.get(rid, [])
+            metadata = {
+                "entity_ids": entity_ids,
+                "passage_ids": passage_ids,
+            }
+            if triplet:
+                metadata["subject"] = triplet.subject
+                metadata["predicate"] = triplet.predicate
+                metadata["object"] = triplet.object
+
+            existing = existing_relations.get(relation_text_by_id[rid])
+            if existing:
+                self._store._update_relation(
+                    stored_id,
+                    text=relation_text_by_id[rid],
+                    embedding=relation_embeddings[index],
+                    entity_ids=entity_ids,
+                    passage_ids=self._merge_unique(existing.get("passage_ids", []), passage_ids),
+                    subject=metadata.get("subject"),
+                    predicate=metadata.get("predicate"),
+                    object_=metadata.get("object"),
+                )
+            else:
+                relation_insert_ids.append(stored_id)
+                relation_insert_texts.append(relation_text_by_id[rid])
+                relation_insert_embeddings.append(relation_embeddings[index])
+                relation_insert_metadatas.append(metadata)
+
+        if relation_insert_ids:
+            self._store._insert_relations(
+                relation_insert_texts,
+                ids=relation_insert_ids,
+                embeddings=relation_insert_embeddings,
+                metadatas=relation_insert_metadatas,
+                show_progress=show_progress,
+            )
+
+        passage_metadatas = []
+        for pid in builder.passage_ids:
+            passage_metadatas.append(
+                self._merge_passage_metadata(
+                    passage_user_metadatas.get(pid, {}),
+                    [
+                        entity_id_map[entity_id]
+                        for entity_id in builder.passage_to_entity_ids.get(pid, [])
+                    ],
+                    [
+                        relation_id_map[relation_id]
+                        for relation_id in builder.passage_to_relation_ids.get(pid, [])
+                    ],
+                )
+            )
+
+        self._store.insert_passages(
+            builder.get_passage_texts(),
+            ids=builder.passage_ids,
+            embeddings=passage_embeddings,
+            metadatas=passage_metadatas,
+            show_progress=show_progress,
+        )
+
+        return entity_id_map, relation_id_map
+
     def _get_passages_from_relations(
         self,
         relation_ids: List[str],
@@ -246,8 +620,14 @@ class VectorGraphRAG:
         """
         Add text strings to the knowledge base.
 
+        Warning:
+            This legacy convenience method rebuilds the full knowledge base and
+            is planned for removal in v1.0.0. Use rebuild_texts() for full
+            refreshes, or upsert_documents() for document-level incremental
+            create/update.
+
         This is a convenience method that converts texts to Document objects
-        and calls add_documents().
+        and calls rebuild_texts().
 
         Args:
             texts: List of text strings.
@@ -271,13 +651,58 @@ class VectorGraphRAG:
             ...     ids=["doc_001", "doc_002"]
             ... )
         """
+        warnings.warn(
+            "add_texts() is deprecated and will be removed in v1.0.0. "
+            "Use rebuild_texts() for full refreshes, or upsert_documents() "
+            "for document-level incremental create/update.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.rebuild_texts(
+            texts,
+            ids=ids,
+            metadatas=metadatas,
+            extract_triplets=extract_triplets,
+            show_progress=show_progress,
+        )
+
+    def rebuild_texts(
+        self,
+        texts: List[str],
+        ids: Optional[List[str]] = None,
+        metadatas: Optional[List[dict]] = None,
+        extract_triplets: bool = True,
+        show_progress: bool = True,
+    ) -> ExtractionResult:
+        """
+        Rebuild the knowledge base from text strings.
+
+        This is a convenience method that converts texts to Document objects
+        and calls rebuild_documents().
+
+        Args:
+            texts: List of text strings.
+            ids: Optional list of IDs. If not provided, UUIDs are generated.
+            metadatas: Optional list of metadata dicts.
+            extract_triplets: Whether to extract triplets using LLM.
+            show_progress: Whether to show progress bars.
+
+        Returns:
+            ExtractionResult with graph statistics for the rebuilt graph.
+
+        Example:
+            >>> rag.rebuild_texts([
+            ...     "Albert Einstein developed the theory of relativity.",
+            ...     "The theory of relativity changed physics forever.",
+            ... ])
+        """
         documents = []
         for i, text in enumerate(texts):
             doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
             metadata = metadatas[i] if metadatas and i < len(metadatas) else {}
             documents.append(Document(page_content=text, metadata=metadata, id=doc_id))
 
-        return self.add_documents(
+        return self.rebuild_documents(
             documents, extract_triplets=extract_triplets, show_progress=show_progress
         )
 
@@ -288,12 +713,21 @@ class VectorGraphRAG:
         show_progress: bool = True,
     ) -> ExtractionResult:
         """
-        Add Document objects to the knowledge base.
+        Add Document objects by rebuilding the knowledge base.
+
+        Warning:
+            This method keeps its original full-rebuild behavior for backward
+            compatibility. It drops and recreates the Milvus collections before
+            indexing the provided documents. Use upsert_documents() for
+            document-level incremental create/update. This legacy method is
+            planned for removal in v1.0.0; use rebuild_documents() for full
+            refreshes.
 
         This method:
         1. Extracts triplets from documents (if enabled)
         2. Builds the knowledge graph structure
-        3. Indexes entities, relations, and passages in Milvus
+        3. Drops and recreates the Milvus collections
+        4. Indexes entities, relations, and passages in Milvus
 
         Args:
             documents: List of langchain_core Document objects.
@@ -313,6 +747,43 @@ class VectorGraphRAG:
             ...     Document(page_content="Relativity changed physics.", id="doc_002"),
             ... ])
         """
+        warnings.warn(
+            "add_documents() is deprecated and will be removed in v1.0.0. "
+            "Use rebuild_documents() for full refreshes, or upsert_documents() "
+            "for document-level incremental create/update.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.rebuild_documents(
+            documents,
+            extract_triplets=extract_triplets,
+            show_progress=show_progress,
+        )
+
+    def rebuild_documents(
+        self,
+        documents: List[Document],
+        extract_triplets: bool = True,
+        show_progress: bool = True,
+    ) -> ExtractionResult:
+        """
+        Rebuild the knowledge base from the provided documents.
+
+        This is the explicit full-refresh API. It removes all existing graph
+        records from this collection prefix and then indexes the given
+        documents.
+
+        Args:
+            documents: List of langchain_core Document objects.
+                       Each Document has page_content (text) and metadata.
+                       If Document.id is None, a UUID will be generated.
+                       Pre-extracted triplets can be stored in metadata["triplets"].
+            extract_triplets: Whether to extract triplets using LLM.
+            show_progress: Whether to show progress bars.
+
+        Returns:
+            ExtractionResult with graph statistics for the rebuilt graph.
+        """
         # Ensure all documents have IDs
         for doc in documents:
             if not doc.id:
@@ -324,110 +795,28 @@ class VectorGraphRAG:
                 documents, show_progress=show_progress
             )
 
-        # Build ExtractionResult
-        self._extraction_result = self._graph_builder.build_from_documents(documents)
-
-        # Generate embeddings
-        if show_progress:
-            logger.info("Generating embeddings...")
-
-        entity_texts = self._graph_builder.get_entity_texts()
-        relation_texts = self._graph_builder.get_relation_texts()
-        passage_texts = self._graph_builder.get_passage_texts()
-
-        entity_embeddings = (
-            self._embedding_model.embed_batch(entity_texts, show_progress=show_progress)
-            if entity_texts
-            else []
+        (
+            self._extraction_result,
+            entity_embeddings,
+            relation_embeddings,
+            passage_embeddings,
+            passage_user_metadatas,
+        ) = self._build_graph_records(
+            self._graph_builder,
+            documents,
+            show_progress=show_progress,
         )
-
-        relation_embeddings = (
-            self._embedding_model.embed_batch(relation_texts, show_progress=show_progress)
-            if relation_texts
-            else []
-        )
-
-        passage_embeddings = (
-            self._embedding_model.embed_batch(passage_texts, show_progress=show_progress)
-            if passage_texts
-            else []
-        )
-
-        # Build metadata for adjacency information
-        # Entity metadata: relation_ids (directly connected relations), passage_ids
-        entity_metadatas = []
-        for eid in self._graph_builder.entity_ids:
-            entity_metadatas.append(
-                {
-                    "relation_ids": self._graph_builder.entity_to_relation_ids.get(eid, []),
-                    "passage_ids": self._graph_builder.entity_to_passage_ids.get(eid, []),
-                }
-            )
-
-        # Relation metadata: entity_ids (head and tail), passage_ids, triplet fields
-        relation_metadatas = []
-        for rid in self._graph_builder.relation_ids:
-            triplet = self._graph_builder.relation_id_to_triplet.get(rid)
-            entity_ids = self._graph_builder.relation_to_entity_ids.get(rid, [])
-            passage_ids = self._graph_builder.relation_to_passage_ids.get(rid, [])
-
-            metadata = {
-                "entity_ids": entity_ids,
-                "passage_ids": passage_ids,
-            }
-            # Add structured triplet fields
-            if triplet:
-                metadata["subject"] = triplet.subject
-                metadata["predicate"] = triplet.predicate
-                metadata["object"] = triplet.object
-
-            relation_metadatas.append(metadata)
-
-        passage_user_metadatas = {
-            doc.id: self._get_user_passage_metadata(doc)
-            for doc in documents
-            if doc.id is not None
-        }
-
-        # Passage metadata
-        passage_metadatas = []
-        for pid in self._graph_builder.passage_ids:
-            passage_metadatas.append(
-                self._merge_passage_metadata(
-                    passage_user_metadatas.get(pid, {}),
-                    self._graph_builder.passage_to_entity_ids.get(pid, []),
-                    self._graph_builder.passage_to_relation_ids.get(pid, []),
-                )
-            )
 
         # Drop and recreate collections for fresh data
         self._store.drop_collections()
         self._store.create_collections(drop_existing=True)
 
-        # Insert into Milvus
-        if show_progress:
-            logger.info("Inserting into Milvus...")
-
-        # Use private methods for entities and relations
-        self._store._insert_entities(
-            entity_texts,
-            ids=self._graph_builder.entity_ids,
-            embeddings=entity_embeddings,
-            metadatas=entity_metadatas,
-            show_progress=show_progress,
-        )
-        self._store._insert_relations(
-            relation_texts,
-            ids=self._graph_builder.relation_ids,
-            embeddings=relation_embeddings,
-            metadatas=relation_metadatas,
-            show_progress=show_progress,
-        )
-        self._store.insert_passages(
-            passage_texts,
-            ids=self._graph_builder.passage_ids,
-            embeddings=passage_embeddings,
-            metadatas=passage_metadatas,
+        self._insert_rebuilt_graph(
+            self._graph_builder,
+            passage_user_metadatas,
+            entity_embeddings,
+            relation_embeddings,
+            passage_embeddings,
             show_progress=show_progress,
         )
 
@@ -436,6 +825,154 @@ class VectorGraphRAG:
 
         return self._extraction_result
 
+    def upsert_documents(
+        self,
+        document_id: str,
+        documents: List[Document],
+        metadata: Optional[Dict[str, Any]] = None,
+        extract_triplets: bool = True,
+        show_progress: bool = True,
+    ) -> ExtractionResult:
+        """
+        Incrementally create or replace one source document.
+
+        The source document can be a file, message, page, or any business-level
+        object. Its parsed chunks are passed as LangChain Document objects. This
+        method replaces only chunks that belong to ``document_id`` and leaves
+        other documents in the knowledge base untouched.
+
+        Args:
+            document_id: Stable source document ID.
+            documents: Parsed chunks/passages for this source document.
+                       Missing chunk IDs are generated deterministically from
+                       document_id and chunk index.
+            metadata: Optional source-level metadata merged into each chunk.
+            extract_triplets: Whether to extract triplets using LLM.
+            show_progress: Whether to show progress bars.
+
+        Returns:
+            ExtractionResult with graph statistics for this document update.
+
+        Example:
+            >>> rag.upsert_documents(
+            ...     document_id="sharepoint:file-123",
+            ...     documents=[Document(page_content="Einstein developed relativity.")],
+            ... )
+        """
+        prepared_documents = self._prepare_upsert_documents(
+            document_id,
+            documents,
+            metadata=metadata,
+        )
+
+        if extract_triplets:
+            prepared_documents = self._triplet_extractor.extract_from_documents(
+                prepared_documents,
+                show_progress=show_progress,
+            )
+
+        builder = GraphBuilder(settings=self.settings)
+        (
+            result,
+            entity_embeddings,
+            relation_embeddings,
+            passage_embeddings,
+            passage_user_metadatas,
+        ) = self._build_graph_records(
+            builder,
+            prepared_documents,
+            show_progress=show_progress,
+        )
+
+        self.delete_documents(document_id)
+        entity_id_map, relation_id_map = self._insert_incremental_graph(
+            builder,
+            passage_user_metadatas,
+            entity_embeddings,
+            relation_embeddings,
+            passage_embeddings,
+            document_id=document_id,
+            show_progress=show_progress,
+        )
+
+        self._extraction_result = self._remap_extraction_result(
+            result,
+            entity_id_map=entity_id_map,
+            relation_id_map=relation_id_map,
+        )
+        self._retriever = None
+        return self._extraction_result
+
+    def delete_documents(self, document_id: str) -> bool:
+        """
+        Incrementally delete one source document and cascade graph references.
+
+        Args:
+            document_id: Stable source document ID previously used with
+                         upsert_documents().
+
+        Returns:
+            True when at least one passage was deleted, otherwise False.
+        """
+        if not document_id:
+            raise ValueError("document_id must not be empty.")
+
+        passages = self._store.get_passages_by_document_id(document_id)
+        if not passages:
+            return False
+
+        passage_ids = [passage["id"] for passage in passages]
+        removed_passage_ids = set(passage_ids)
+
+        relation_ids = sorted(
+            {relation_id for passage in passages for relation_id in passage.get("relation_ids", [])}
+        )
+        entity_ids = sorted(
+            {entity_id for passage in passages for entity_id in passage.get("entity_ids", [])}
+        )
+
+        relations = self._store._get_relations_by_ids(relation_ids)
+        deleted_relation_ids: set[str] = set()
+        for relation in relations:
+            relation_id = relation["id"]
+            new_passage_ids = self._remove_many(
+                relation.get("passage_ids", []),
+                removed_passage_ids,
+            )
+            if new_passage_ids:
+                self._store._update_relation(
+                    relation_id,
+                    passage_ids=new_passage_ids,
+                )
+            else:
+                self._store._delete_relation(relation_id)
+                deleted_relation_ids.add(relation_id)
+
+        entities = self._store._get_entities_by_ids(entity_ids)
+        for entity in entities:
+            entity_id = entity["id"]
+            new_passage_ids = self._remove_many(
+                entity.get("passage_ids", []),
+                removed_passage_ids,
+            )
+            new_relation_ids = self._remove_many(
+                entity.get("relation_ids", []),
+                deleted_relation_ids,
+            )
+
+            if new_passage_ids or new_relation_ids:
+                self._store._update_entity(
+                    entity_id,
+                    passage_ids=new_passage_ids,
+                    relation_ids=new_relation_ids,
+                )
+            else:
+                self._store._delete_entity(entity_id)
+
+        self._store.delete_passages(passage_ids)
+        self._retriever = None
+        return True
+
     def add_documents_with_triplets(
         self,
         documents: List[dict],
@@ -443,6 +980,14 @@ class VectorGraphRAG:
     ) -> ExtractionResult:
         """
         Add documents with pre-extracted triplets.
+
+        Warning:
+            This legacy convenience method rebuilds the full knowledge base and
+            is planned for removal in v1.0.0. Use
+            rebuild_documents_with_triplets() for full refreshes. For
+            incremental updates with pre-extracted triplets, store triplets in
+            each chunk's metadata["triplets"] and call
+            upsert_documents(..., extract_triplets=False).
 
         Use this method if you already have triplets extracted,
         to avoid the LLM triplet extraction step.
@@ -458,6 +1003,47 @@ class VectorGraphRAG:
 
         Example:
             >>> rag.add_documents_with_triplets([
+            ...     {
+            ...         "id": "doc_001",  # optional
+            ...         "passage": "Einstein developed relativity.",
+            ...         "triplets": [
+            ...             ["Einstein", "developed", "relativity"],
+            ...         ],
+            ...     },
+            ... ])
+        """
+        warnings.warn(
+            "add_documents_with_triplets() is deprecated and will be removed in "
+            "v1.0.0. Use rebuild_documents_with_triplets() for full refreshes, "
+            "or upsert_documents(..., extract_triplets=False) for document-level "
+            "incremental create/update.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.rebuild_documents_with_triplets(documents, show_progress=show_progress)
+
+    def rebuild_documents_with_triplets(
+        self,
+        documents: List[dict],
+        show_progress: bool = True,
+    ) -> ExtractionResult:
+        """
+        Rebuild the knowledge base from documents with pre-extracted triplets.
+
+        Use this method if you already have triplets extracted,
+        to avoid the LLM triplet extraction step.
+
+        Args:
+            documents: List of dicts with "passage" and "triplets" keys.
+                       Optionally include "id" for custom document ID.
+                       Each triplet is [subject, predicate, object].
+            show_progress: Whether to show progress bars.
+
+        Returns:
+            ExtractionResult with graph statistics for the rebuilt graph.
+
+        Example:
+            >>> rag.rebuild_documents_with_triplets([
             ...     {
             ...         "id": "doc_001",  # optional
             ...         "passage": "Einstein developed relativity.",
@@ -485,7 +1071,7 @@ class VectorGraphRAG:
                 )
             )
 
-        return self.add_documents(docs, extract_triplets=False, show_progress=show_progress)
+        return self.rebuild_documents(docs, extract_triplets=False, show_progress=show_progress)
 
     def query(
         self,
@@ -803,7 +1389,7 @@ def create_rag(
     Example:
         >>> from vector_graph_rag import create_rag
         >>> rag = create_rag()
-        >>> rag.add_documents(["Your documents here..."])
+        >>> rag.rebuild_texts(["Your documents here..."])
     """
     return VectorGraphRAG(
         milvus_uri=milvus_uri,

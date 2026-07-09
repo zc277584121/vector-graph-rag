@@ -129,7 +129,11 @@ rag = VectorGraphRAG(
 
 #### `add_texts`
 
-Ingest plain text strings. Each string is stored as a passage; optionally, knowledge-graph triplets are extracted automatically.
+Legacy compatibility wrapper for rebuilding the graph from plain text strings.
+
+!!! warning "Full rebuild"
+    This method delegates to `rebuild_texts()` and rebuilds the full knowledge base.
+    This legacy convenience API is planned for removal in v1.0.0. Use [`rebuild_texts`](#rebuild_texts) for full refreshes, or [`upsert_documents`](#upsert_documents) for document-level incremental updates.
 
 ```python
 def add_texts(
@@ -165,9 +169,45 @@ print(f"Extracted {len(result.entities)} entities, {len(result.relations)} relat
 
 ---
 
+#### `rebuild_texts`
+
+Explicitly rebuild the full knowledge base from plain text strings. Each string is stored as one passage.
+
+```python
+def rebuild_texts(
+    texts: List[str],
+    ids: Optional[List[str]] = None,
+    metadatas: Optional[List[dict]] = None,
+    extract_triplets: bool = True,
+    show_progress: bool = True,
+) -> ExtractionResult
+```
+
+| Parameter | Description |
+|---|---|
+| `texts` | Text strings that replace the current graph contents. |
+| `ids` | Optional list of unique passage IDs. Auto-generated if omitted. |
+| `metadatas` | Optional list of metadata dicts attached to each text. |
+| `extract_triplets` | If `True`, the LLM extracts entity-relation-entity triplets from each text. |
+| `show_progress` | Show a progress bar during processing. |
+
+**Returns:** [`ExtractionResult`](#extractionresult)
+
+```python
+result = rag.rebuild_texts([
+    "Albert Einstein developed the theory of general relativity.",
+    "Einstein was born in Ulm, Germany in 1879.",
+])
+```
+
+---
+
 #### `add_documents`
 
-Ingest [LangChain `Document`](https://python.langchain.com/docs/modules/data_connection/document_loaders/) objects directly.
+Legacy compatibility wrapper for rebuilding the graph from [LangChain `Document`](https://python.langchain.com/docs/modules/data_connection/document_loaders/) objects.
+
+!!! warning "Full rebuild"
+    `add_documents()` keeps its original behavior for backward compatibility: it drops and recreates the Milvus collections for this graph before indexing the provided documents. This legacy API is planned for removal in v1.0.0. Use [`rebuild_documents`](#rebuild_documents) when you want this behavior explicitly, or [`upsert_documents`](#upsert_documents) for incremental create/update.
 
 ```python
 def add_documents(
@@ -198,9 +238,36 @@ result = rag.add_documents(docs)
 
 ---
 
+#### `rebuild_documents`
+
+Explicitly rebuild the full knowledge base from a list of LangChain `Document` objects.
+
+```python
+def rebuild_documents(
+    documents: List[Document],
+    extract_triplets: bool = True,
+    show_progress: bool = True,
+) -> ExtractionResult
+```
+
+| Parameter | Description |
+|---|---|
+| `documents` | Documents that replace the current graph contents. |
+| `extract_triplets` | If `True`, extract knowledge-graph triplets from each document. |
+| `show_progress` | Show a progress bar. |
+
+**Returns:** [`ExtractionResult`](#extractionresult)
+
+Use this for initial bulk indexing, benchmark rebuilds, or when you intentionally want a full refresh.
+
+---
+
 #### `add_documents_with_triplets`
 
-Ingest documents where triplets have already been extracted externally. Use this when you have your own extraction pipeline or pre-annotated data.
+Legacy compatibility wrapper for rebuilding the graph from documents where triplets have already been extracted externally.
+
+!!! warning "Full rebuild"
+    This method delegates to `rebuild_documents_with_triplets()` and rebuilds the full knowledge base. This legacy convenience API is planned for removal in v1.0.0. For pre-extracted triplets in an incremental update, put the triplets in each chunk's `metadata["triplets"]` and call [`upsert_documents`](#upsert_documents) with `extract_triplets=False`.
 
 ```python
 def add_documents_with_triplets(
@@ -228,6 +295,107 @@ Optional `metadata` is stored on the passage and can be used by query filters.
 
     result = rag.add_documents_with_triplets(docs_with_triplets)
     ```
+
+---
+
+#### `rebuild_documents_with_triplets`
+
+Explicitly rebuild the full knowledge base from documents that already include extracted triplets.
+
+```python
+def rebuild_documents_with_triplets(
+    documents: List[dict],
+    show_progress: bool = True,
+) -> ExtractionResult
+```
+
+Each dict in `documents` should contain the document text and its pre-extracted triplets.
+Optional `metadata` is stored on the passage and can be used by query filters.
+
+**Returns:** [`ExtractionResult`](#extractionresult)
+
+!!! example "Pre-extracted triplets"
+    ```python
+    docs_with_triplets = [
+        {
+            "text": "Albert Einstein developed the theory of general relativity.",
+            "triplets": [
+                ("Albert Einstein", "developed", "theory of general relativity"),
+            ],
+            "metadata": {"source": "physics", "year": 1915},
+        },
+    ]
+
+    result = rag.rebuild_documents_with_triplets(docs_with_triplets)
+    ```
+
+---
+
+#### `upsert_documents`
+
+Incrementally create or replace one source document. A source document can be a file, page, message, or any other business-level object. The `documents` argument contains the parsed chunks/passages for that source document.
+
+```python
+def upsert_documents(
+    document_id: str,
+    documents: List[Document],
+    metadata: Optional[Dict[str, Any]] = None,
+    extract_triplets: bool = True,
+    show_progress: bool = True,
+) -> ExtractionResult
+```
+
+| Parameter | Description |
+|---|---|
+| `document_id` | Stable source document ID, such as a file ID or message ID. |
+| `documents` | Parsed chunks/passages for this source document. Missing chunk IDs are generated deterministically from `document_id` and chunk index. |
+| `metadata` | Source-level metadata merged into every chunk. |
+| `extract_triplets` | If `True`, extract triplets from each chunk. If triplets are already in `metadata["triplets"]`, set this to `False`. |
+| `show_progress` | Show a progress bar. |
+
+**Returns:** [`ExtractionResult`](#extractionresult)
+
+If `document_id` does not exist, the method inserts a new document. If it already exists, the method deletes the previous chunks for that document, updates graph references, and inserts the new chunks without rebuilding unrelated documents.
+
+```python
+from langchain_core.documents import Document
+
+chunks = [
+    Document(
+        page_content="Alpha owns the blue database.",
+        metadata={"triplets": [["Alpha", "owns", "blue database"]]},
+    )
+]
+
+rag.upsert_documents(
+    document_id="sharepoint:file-123",
+    documents=chunks,
+    metadata={"tenant_id": "team_a", "source": "sharepoint"},
+    extract_triplets=False,
+)
+```
+
+---
+
+#### `delete_documents`
+
+Incrementally delete one source document and remove graph references that only belonged to that document.
+
+```python
+def delete_documents(document_id: str) -> bool
+```
+
+| Parameter | Description |
+|---|---|
+| `document_id` | Stable source document ID previously used with `upsert_documents()`. |
+
+**Returns:** `True` if at least one passage was deleted; otherwise `False`.
+
+Shared entities and relations are preserved when other documents still reference them. Orphaned relations and entities are removed.
+
+```python
+deleted = rag.delete_documents("sharepoint:file-123")
+```
 
 ---
 
@@ -442,7 +610,7 @@ print(f"Final passages: {len(result.passages)}")
 
 ## ExtractionResult
 
-A data class returned by all `add_*` methods. It summarises what was ingested and extracted.
+A data class returned by document ingestion methods, including legacy `add_*`, `rebuild_*`, and `upsert_documents()`. It summarises what was ingested and extracted.
 
 ```python
 from vector_graph_rag import ExtractionResult
@@ -459,7 +627,7 @@ from vector_graph_rag import ExtractionResult
 | `relation_to_passage_ids` | `dict` | Mapping from relation IDs to source passage IDs. |
 
 ```python
-result = rag.add_texts(["Marie Curie discovered radium and polonium."])
+result = rag.rebuild_texts(["Marie Curie discovered radium and polonium."])
 
 print(f"Documents: {len(result.documents)}")
 print(f"Entities:  {len(result.entities)}")
@@ -590,7 +758,7 @@ from vector_graph_rag import create_rag
 # Minimal setup — just needs OPENAI_API_KEY in the environment
 rag = create_rag()
 
-rag.add_texts(["The mitochondria is the powerhouse of the cell."])
+rag.rebuild_texts(["The mitochondria is the powerhouse of the cell."])
 answer = rag.query_simple("What is the powerhouse of the cell?")
 print(answer)
 ```
@@ -619,7 +787,7 @@ loader_result = importer.import_sources([
 ])
 
 # 3. Ingest into the vector graph
-extraction = rag.add_documents(loader_result.documents)
+extraction = rag.rebuild_documents(loader_result.documents)
 print(f"Ingested {len(extraction.entities)} entities and {len(extraction.relations)} relations")
 
 # 4. Query
@@ -639,8 +807,8 @@ from vector_graph_rag import create_rag
 physics_rag = create_rag(collection_prefix="physics")
 biology_rag = create_rag(collection_prefix="biology")
 
-physics_rag.add_texts(["E=mc² is the mass-energy equivalence formula."])
-biology_rag.add_texts(["DNA carries genetic information in living organisms."])
+physics_rag.rebuild_texts(["E=mc² is the mass-energy equivalence formula."])
+biology_rag.rebuild_texts(["DNA carries genetic information in living organisms."])
 
 # Each RAG instance only searches its own collections
 print(physics_rag.query_simple("What is E=mc²?"))

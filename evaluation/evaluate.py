@@ -391,7 +391,7 @@ class VectorGraphRAGEvaluator:
             extracted_docs = load_extracted_triplets(self.dataset_name, self.data_dir)
             documents = build_documents_from_triplets(extracted_docs)
             print(f"Built {len(documents)} documents from triplets")
-            self.rag.add_documents_with_triplets(documents, show_progress=True)
+            self.rag.rebuild_documents_with_triplets(documents, show_progress=True)
         else:
             passages = []
             for item in self.corpus:
@@ -401,7 +401,7 @@ class VectorGraphRAGEvaluator:
                     passage = str(item)
                 passages.append(passage)
             print(f"Auto triplet extraction for {len(passages)} passages...")
-            self.rag.add_texts(passages, show_progress=True)
+            self.rag.rebuild_texts(passages, show_progress=True)
 
         # Get stats from extraction result
         stats = self.rag.get_stats()

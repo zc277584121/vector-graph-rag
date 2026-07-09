@@ -69,7 +69,7 @@ from vector_graph_rag import VectorGraphRAG
 
 rag = VectorGraphRAG()  # reads OPENAI_API_KEY from environment
 
-rag.add_texts([
+rag.rebuild_texts([
     "Albert Einstein developed the theory of relativity.",
     "The theory of relativity revolutionized our understanding of space and time.",
 ])
@@ -86,7 +86,7 @@ print(result.answer)
 Skip LLM extraction if you already have knowledge graph triplets:
 
 ```python
-rag.add_documents_with_triplets([
+rag.rebuild_documents_with_triplets([
     {
         "passage": "Einstein developed relativity at Princeton.",
         "triplets": [
@@ -96,6 +96,41 @@ rag.add_documents_with_triplets([
     },
 ])
 ```
+
+</details>
+
+<details>
+<summary>🔄 <b>Incremental document updates</b> — click to expand</summary>
+
+Use `upsert_documents()` when a source file, message, or page is created or modified.
+The method replaces only that source document's chunks and graph references.
+
+```python
+from langchain_core.documents import Document
+
+rag.upsert_documents(
+    document_id="sharepoint:file-123",
+    documents=[
+        Document(
+            page_content="Einstein developed relativity at Princeton.",
+            metadata={
+                "triplets": [
+                    ["Einstein", "developed", "relativity"],
+                    ["Einstein", "worked at", "Princeton"],
+                ],
+            },
+        ),
+    ],
+    metadata={"source": "sharepoint"},
+    extract_triplets=False,
+)
+
+rag.delete_documents("sharepoint:file-123")
+```
+
+The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned
+for removal in v1.0.0. For explicit full refreshes, use `rebuild_texts()`,
+`rebuild_documents()`, or `rebuild_documents_with_triplets()`.
 
 </details>
 
@@ -115,7 +150,7 @@ result = importer.import_sources([
 ])
 
 rag = VectorGraphRAG(milvus_uri="./my_graph.db")
-rag.add_documents(result.documents, extract_triplets=True)
+rag.rebuild_documents(result.documents, extract_triplets=True)
 
 result = rag.query("What did Einstein discover?")
 print(result.answer)

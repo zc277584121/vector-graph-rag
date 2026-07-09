@@ -121,10 +121,10 @@ class TestDocumentCRUDEndpoints:
 class TestAddDocumentsEndpoint:
     """Tests for add documents endpoint."""
 
-    @patch("vector_graph_rag.rag.VectorGraphRAG.add_documents")
+    @patch("vector_graph_rag.rag.VectorGraphRAG.rebuild_texts")
     def test_add_documents_basic(self, mock_add, client):
         """Test adding documents endpoint."""
-        # Mock the add_documents method
+        # Mock the full-rebuild ingestion method
         mock_result = MagicMock()
         mock_result.documents = []
         mock_result.entities = []
@@ -143,8 +143,9 @@ class TestAddDocumentsEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert "num_documents" in data
-        args, _ = mock_add.call_args
-        assert args[0][0].metadata == {"source": "test1"}
+        args, kwargs = mock_add.call_args
+        assert args[0] == ["Test document 1", "Test document 2"]
+        assert kwargs["metadatas"] == [{"source": "test1"}, {"source": "test2"}]
 
 
 class TestQueryEndpoint:

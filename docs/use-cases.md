@@ -26,7 +26,7 @@ Legal documents are full of cross-references: statutes cite other statutes, cour
 ```python
 rag = VectorGraphRAG(collection_prefix="legal_contracts")
 
-rag.add_texts([
+rag.rebuild_texts([
     "Section 3.1 defines the indemnification obligations of the Seller.",
     "Under Section 5.2, breach of Section 3.1 triggers termination rights.",
     "The Buyer may exercise termination rights within 30 days of notice.",
@@ -43,7 +43,7 @@ Financial data forms natural graphs: companies own subsidiaries, executives serv
 ```python
 rag = VectorGraphRAG(collection_prefix="financial_reports")
 
-rag.add_texts([
+rag.rebuild_texts([
     "Berkshire Hathaway acquired See's Candies in 1972 for $25 million.",
     "See's Candies generated $383 million in pre-tax earnings by 2007.",
     "Warren Buffett has called See's the ideal business.",
@@ -60,7 +60,7 @@ Drug interactions, symptom-disease-treatment pathways, and clinical trial relati
 ```python
 rag = VectorGraphRAG(collection_prefix="medical_literature")
 
-rag.add_texts([
+rag.rebuild_texts([
     "Metformin is the first-line treatment for type 2 diabetes.",
     "Patients on metformin should have renal function monitored.",
     "Impaired renal function may require dose adjustment or alternative therapy.",
@@ -81,7 +81,7 @@ importer = DocumentImporter(chunk_size=1500, chunk_overlap=200)
 result = importer.import_sources(["/path/to/novel.pdf"])
 
 rag = VectorGraphRAG(collection_prefix="novel_analysis")
-rag.add_documents(result.documents, extract_triplets=True)
+rag.rebuild_documents(result.documents, extract_triplets=True)
 
 result = rag.query("How does the protagonist's relationship with the antagonist evolve?")
 # Graph captures character interactions across the entire novel
@@ -102,7 +102,7 @@ result = importer.import_sources([
 ])
 
 rag = VectorGraphRAG(collection_prefix="research_survey")
-rag.add_documents(result.documents, extract_triplets=True)
+rag.rebuild_documents(result.documents, extract_triplets=True)
 
 result = rag.query("What methods achieve the best performance on this task?")
 # Graph connects methods, results, and comparisons across papers

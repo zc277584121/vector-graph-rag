@@ -152,7 +152,10 @@ curl -X DELETE http://localhost:8000/graph/my_graph
 
 <span class="api-method api-post">POST</span> `/add_documents?graph_name={graph_name}`
 
-Adds documents to a graph. Optionally extracts knowledge graph triplets from the text using the configured LLM.
+Indexes documents by rebuilding the selected graph. Optionally extracts knowledge graph triplets from the text using the configured LLM.
+
+!!! warning "Full rebuild"
+    This endpoint uses the Python full-rebuild ingestion path. Calling it replaces the current graph contents for the selected `graph_name`. Document-level incremental upsert/delete is currently available through the Python API via `upsert_documents()` and `delete_documents()`.
 
 **Query Parameters**
 
@@ -219,6 +222,9 @@ curl -X POST "http://localhost:8000/add_documents?graph_name=my_graph" \
 <span class="api-method api-post">POST</span> `/import`
 
 Imports documents from URLs or local file paths. Supports chunking for large documents.
+
+!!! warning "Full rebuild"
+    Imported documents are indexed through the full-rebuild ingestion path for the target graph. Use the Python API for document-level incremental updates after parsing files externally.
 
 **Request Body**
 
