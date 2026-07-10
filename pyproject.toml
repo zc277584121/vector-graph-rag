@@ -51,8 +51,34 @@ hf = [
     "transformers>=4.30.0",
     "torch>=2.0.0",
 ]
+google = [
+    "google-genai>=1.0",
+]
+voyage = [
+    "voyageai>=0.3",
+]
+jina = [
+    "httpx>=0.27",
+]
+mistral = [
+    "mistralai>=1.0",
+]
+ollama = [
+    "ollama>=0.4",
+]
+local = [
+    "einops>=0.8.2",
+    "sentence-transformers>=3.0",
+    "torch>=2.0.0",
+]
+onnx = [
+    "onnxruntime>=1.17,<1.24; python_version == '3.10'",
+    "onnxruntime>=1.17; python_version >= '3.11'",
+    "tokenizers>=0.15",
+    "huggingface-hub>=0.20",
+]
 all = [
-    "vector-graph-rag[dev,api,hf]",
+    "vector-graph-rag[dev,api,hf,google,voyage,jina,mistral,ollama,local,onnx]",
 ]
 loaders = [
     "markitdown[docx,pdf]>=0.1.4",

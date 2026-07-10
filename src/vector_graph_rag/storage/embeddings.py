@@ -1,239 +1,83 @@
-"""
-Embedding model wrapper for vector representations.
+"""Embedding model facade for vector representations."""
 
-Supports both HuggingFace models (e.g., facebook/contriever) and OpenAI models.
-Also supports instruction-based models like Qwen3-Embedding and BGE.
-"""
+from __future__ import annotations
 
-from typing import List, Literal, Optional, Union
+import warnings
+from typing import List, Literal, Optional
 
-import numpy as np
 from tqdm import tqdm
 
 from vector_graph_rag.config import Settings, get_settings
+from vector_graph_rag.storage.embedding_providers import (
+    DEFAULT_MODELS,
+    canonicalize_provider,
+    default_model_for_provider,
+    get_provider,
+)
+from vector_graph_rag.storage.embedding_providers.huggingface import (
+    INSTRUCTION_TEMPLATES,
+    HuggingFaceEmbedding,
+)
+from vector_graph_rag.storage.embedding_providers.openai import OpenAIEmbedding
 
-# Predefined instruction templates for different models
-INSTRUCTION_TEMPLATES = {
-    # Qwen3 Embedding format
-    "qwen3": {
-        "query": "Instruct: {instruction}\nQuery: {text}",
-        "document": "{text}",  # No instruction for documents
-        "default_instruction": "Given a question, retrieve passages that contain the answer",
-    },
-    # BGE format - instruction only for queries
-    "bge": {
-        "query": "{instruction}: {text}",
-        "document": "{text}",
-        "default_instruction": "Represent this sentence for searching relevant passages",
-    },
-}
+_SETTINGS_DEFAULT_EMBEDDING_MODEL = Settings.model_fields["embedding_model"].default
 
 
 def _is_openai_model(model_name: str) -> bool:
-    """Check if the model is an OpenAI embedding model."""
-    openai_models = [
+    """Check whether a model name is a known OpenAI embedding model."""
+    openai_models = {
         "text-embedding-3-small",
         "text-embedding-3-large",
         "text-embedding-ada-002",
-    ]
+    }
     return model_name in openai_models or model_name.startswith("text-embedding")
 
 
-def _get_model_family(model_name: str) -> Optional[str]:
-    """Detect model family from model name for instruction templates."""
-    model_lower = model_name.lower()
-    if "qwen" in model_lower and "embed" in model_lower:
-        return "qwen3"
-    if "bge" in model_lower:
-        return "bge"
-    return None
+def _infer_legacy_provider(settings: Settings, model_name: str) -> str:
+    """Infer provider for compatibility when embedding_provider is omitted."""
+    if _is_openai_model(model_name):
+        return "openai"
+    if settings.openai_base_url or settings.embedding_base_url:
+        return "openai"
+    if "/" in model_name:
+        return "huggingface"
+    return "openai"
 
 
-def _mean_pooling(token_embeddings, attention_mask):
-    """Mean pooling with attention mask."""
-    token_embeddings = token_embeddings.masked_fill(~attention_mask[..., None].bool(), 0.0)
-    sentence_embeddings = token_embeddings.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
-    return sentence_embeddings
-
-
-class HuggingFaceEmbedding:
-    """
-    HuggingFace embedding model wrapper (e.g., facebook/contriever).
-    Supports instruction-based models like Qwen3-Embedding and BGE.
-    """
-
-    def __init__(
-        self,
-        model_name: str,
-        device: Optional[str] = None,
-        instruction: Optional[str] = None,
-        instruction_template: Optional[str] = None,
+def _resolve_model_name(
+    *,
+    settings: Settings,
+    provider_name: str,
+    model_override: Optional[str],
+    provider_was_explicit: bool,
+) -> str:
+    """Resolve the effective model name for a provider."""
+    if model_override:
+        return model_override
+    if (
+        provider_was_explicit
+        and provider_name != "openai"
+        and settings.embedding_model == _SETTINGS_DEFAULT_EMBEDDING_MODEL
     ):
-        try:
-            import torch
-            from transformers import AutoModel, AutoTokenizer
-        except ImportError as exc:
-            raise ImportError(
-                "HuggingFace embedding models require the optional 'hf' dependencies. "
-                "Install with: uv sync --extra hf, or pip install 'vector-graph-rag[hf]'."
-            ) from exc
-
-        self.model_name = model_name
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self._torch = torch
-        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True).to(self.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        self.model.eval()
-
-        # Detect model family and set up instruction handling
-        self.model_family = _get_model_family(model_name)
-        self.instruction = instruction
-        self.instruction_template = instruction_template
-
-        # If instruction is provided but no template, use model family default
-        if self.instruction and not self.instruction_template and self.model_family:
-            self.instruction_template = self.model_family
-
-    def _apply_instruction(
-        self, texts: List[str], text_type: Literal["query", "document"] = "query"
-    ) -> List[str]:
-        """Apply instruction template to texts if configured."""
-        if not self.instruction or not self.instruction_template:
-            return texts
-
-        template_config = INSTRUCTION_TEMPLATES.get(self.instruction_template)
-        if not template_config:
-            return texts
-
-        template = template_config.get(text_type, "{text}")
-        instruction = self.instruction or template_config.get("default_instruction", "")
-
-        return [template.format(instruction=instruction, text=t) for t in texts]
-
-    def encode(
-        self,
-        texts: Union[str, List[str]],
-        normalize: bool = True,
-        text_type: Literal["query", "document"] = "query",
-    ) -> np.ndarray:
-        """Encode texts to embeddings.
-
-        Args:
-            texts: Text or list of texts to encode
-            normalize: Whether to L2-normalize embeddings
-            text_type: Type of text - "query" or "document" (affects instruction application)
-        """
-        if isinstance(texts, str):
-            texts = [texts]
-
-        # Apply instruction if configured
-        processed_texts = self._apply_instruction(texts, text_type)
-        torch = self._torch
-
-        with torch.no_grad():
-            inputs = self.tokenizer(
-                processed_texts, padding=True, truncation=True, return_tensors="pt", max_length=512
-            ).to(self.device)
-            outputs = self.model(**inputs)
-            embeddings = _mean_pooling(outputs.last_hidden_state, inputs["attention_mask"])
-
-            if normalize:
-                embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-
-            return embeddings.float().cpu().numpy()
-
-
-class OpenAIEmbedding:
-    """
-    OpenAI embedding model wrapper.
-    """
-
-    def __init__(self, model_name: str, api_key: str, base_url: Optional[str] = None):
-        from openai import OpenAI
-        from tenacity import retry, stop_after_attempt, wait_exponential
-
-        self.model_name = model_name
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-
-        # Wrap the API call with retry logic
-        @retry(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=2, max=10),
-        )
-        def _call_api(texts):
-            return self.client.embeddings.create(model=self.model_name, input=texts)
-
-        self._call_api = _call_api
-
-        # Detect embedding dimension lazily
-        self._dimension: Optional[int] = None
-
-    def _get_dimension(self) -> int:
-        """Get embedding dimension by making a test call."""
-        if self._dimension is None:
-            response = self._call_api(["test"])
-            self._dimension = len(response.data[0].embedding)
-        return self._dimension
-
-    def encode(
-        self,
-        texts: Union[str, List[str]],
-        normalize: bool = True,
-        text_type: Literal["query", "document"] = "query",
-    ) -> np.ndarray:
-        """Encode texts to embeddings.
-
-        Args:
-            texts: Text or list of texts to encode
-            normalize: Whether to L2-normalize embeddings
-            text_type: Type of text (ignored for OpenAI, included for API consistency)
-        """
-        if isinstance(texts, str):
-            texts = [texts]
-
-        # Filter out empty/whitespace-only texts (OpenAI API rejects them)
-        valid_indices = [i for i, t in enumerate(texts) if t and t.strip()]
-        valid_texts = [texts[i] for i in valid_indices]
-
-        if not valid_texts:
-            return np.zeros((len(texts), self._get_dimension()))
-
-        response = self._call_api(valid_texts)
-        sorted_data = sorted(response.data, key=lambda x: x.index)
-        valid_embeddings = np.array([item.embedding for item in sorted_data])
-
-        if normalize:
-            norms = np.linalg.norm(valid_embeddings, axis=1, keepdims=True)
-            valid_embeddings = valid_embeddings / norms
-
-        # Reassemble with zero vectors for empty texts
-        if len(valid_indices) == len(texts):
-            return valid_embeddings
-
-        dim = valid_embeddings.shape[1]
-        embeddings = np.zeros((len(texts), dim))
-        for idx, valid_idx in enumerate(valid_indices):
-            embeddings[valid_idx] = valid_embeddings[idx]
-        return embeddings
+        return default_model_for_provider(provider_name)
+    return settings.embedding_model or DEFAULT_MODELS[provider_name]
 
 
 class EmbeddingModel:
     """
     Unified embedding model wrapper.
 
-    Supports both HuggingFace models (e.g., facebook/contriever) and OpenAI models.
-    Also supports instruction-based models like Qwen3-Embedding and BGE.
+    The preferred configuration is explicit provider selection:
 
-    Example:
-        >>> model = EmbeddingModel()  # Uses facebook/contriever by default
-        >>> embedding = model.embed("Hello world")
-        >>> print(len(embedding))
-        768
+        >>> model = EmbeddingModel(
+        ...     settings=Settings(
+        ...         embedding_provider="openai",
+        ...         embedding_model="text-embedding-3-small",
+        ...     )
+        ... )
 
-        # With instruction for BGE
-        >>> model = EmbeddingModel(model="BAAI/bge-base-en-v1.5", instruction="Represent this sentence for searching relevant passages")
-        >>> query_emb = model.embed("What is AI?", text_type="query")
-        >>> doc_emb = model.embed("AI is artificial intelligence.", text_type="document")
+    Supported providers: openai, huggingface, google/gemini, voyage, jina,
+    mistral, ollama, local, and onnx.
     """
 
     def __init__(
@@ -242,6 +86,7 @@ class EmbeddingModel:
         model: Optional[str] = None,
         instruction: Optional[str] = None,
         instruction_template: Optional[str] = None,
+        provider: Optional[str] = None,
     ):
         """
         Initialize the embedding model.
@@ -249,37 +94,66 @@ class EmbeddingModel:
         Args:
             settings: Configuration settings.
             model: Override embedding model from settings.
-            instruction: Custom instruction for query encoding (for models like Qwen3, BGE).
-            instruction_template: Template style - "qwen3" or "bge". Auto-detected if not specified.
+            instruction: Custom instruction for query encoding.
+            instruction_template: Template style, such as "qwen3" or "bge".
+            provider: Override embedding provider from settings.
         """
         self.settings = settings or get_settings()
-        self.model_name = model or self.settings.embedding_model
+        provider_value = provider or self.settings.embedding_provider
+        provider_was_explicit = provider_value is not None
+
+        legacy_model_name = model or self.settings.embedding_model
+        if provider_value is None:
+            provider_value = _infer_legacy_provider(self.settings, legacy_model_name)
+            warnings.warn(
+                "Inferring the embedding provider from embedding_model is deprecated and "
+                "will be removed in v1.0.0. Set embedding_provider explicitly.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        self.provider_name = canonicalize_provider(provider_value)
+        self.model_name = _resolve_model_name(
+            settings=self.settings,
+            provider_name=self.provider_name,
+            model_override=model,
+            provider_was_explicit=provider_was_explicit,
+        )
         self.instruction = instruction
         self.instruction_template = instruction_template
 
-        if _is_openai_model(self.model_name):
-            self.settings.validate_settings()  # Need API key for OpenAI
-            self._backend = OpenAIEmbedding(
-                model_name=self.model_name,
-                api_key=self.settings.openai_api_key,
-                base_url=self.settings.openai_base_url,
-            )
-        else:
-            # HuggingFace model
-            self._backend = HuggingFaceEmbedding(
-                model_name=self.model_name,
-                instruction=instruction,
-                instruction_template=instruction_template,
-            )
+        if self.provider_name == "openai":
+            self.settings.validate_settings()
 
+        api_key = self.settings.embedding_api_key
+        if self.provider_name == "openai" and api_key is None:
+            api_key = self.settings.openai_api_key
+
+        base_url = self.settings.embedding_base_url
+        if self.provider_name == "openai" and base_url is None:
+            base_url = self.settings.openai_base_url
+
+        self._backend = get_provider(
+            self.provider_name,
+            model_name=self.model_name,
+            batch_size=self.settings.batch_size,
+            api_key=api_key,
+            base_url=base_url,
+            instruction=instruction,
+            instruction_template=instruction_template,
+        )
         self._dimension: Optional[int] = None
 
     @property
     def dimension(self) -> int:
-        """Get the embedding dimension by making a test call if needed."""
+        """Get the embedding dimension."""
         if self._dimension is None:
-            test_embedding = self.embed("test")
-            self._dimension = len(test_embedding)
+            backend_dimension = getattr(self._backend, "dimension", None)
+            if backend_dimension is not None:
+                self._dimension = int(backend_dimension)
+            else:
+                test_embedding = self.embed("test")
+                self._dimension = len(test_embedding)
         return self._dimension
 
     def embed(
@@ -292,7 +166,7 @@ class EmbeddingModel:
 
         Args:
             text: The text to embed.
-            text_type: Type of text - "query" or "document" (affects instruction application).
+            text_type: Type of text - "query" or "document".
 
         Returns:
             Embedding vector as a list of floats.
@@ -314,7 +188,7 @@ class EmbeddingModel:
             texts: List of texts to embed.
             batch_size: Number of texts per batch.
             show_progress: Whether to show progress bar.
-            text_type: Type of text - "query" or "document" (affects instruction application).
+            text_type: Type of text - "query" or "document".
 
         Returns:
             List of embedding vectors.
@@ -333,3 +207,11 @@ class EmbeddingModel:
             all_embeddings.extend(embeddings.tolist())
 
         return all_embeddings
+
+
+__all__ = [
+    "EmbeddingModel",
+    "HuggingFaceEmbedding",
+    "INSTRUCTION_TEMPLATES",
+    "OpenAIEmbedding",
+]

@@ -73,7 +73,10 @@ class VectorGraphRAG:
         collection_prefix: Optional[str] = None,
         openai_api_key: Optional[str] = None,
         llm_model: Optional[str] = None,
+        embedding_provider: Optional[str] = None,
         embedding_model: Optional[str] = None,
+        embedding_api_key: Optional[str] = None,
+        embedding_base_url: Optional[str] = None,
     ):
         """
         Initialize Vector Graph RAG.
@@ -86,7 +89,11 @@ class VectorGraphRAG:
             collection_prefix: Prefix for collection names (e.g., graph/dataset name).
             openai_api_key: OpenAI API key. Uses environment variable if not provided.
             llm_model: LLM model name. Defaults to "gpt-4o-mini".
-            embedding_model: Embedding model name. Defaults to "text-embedding-3-small".
+            embedding_provider: Embedding provider name (e.g., "openai", "huggingface",
+                "ollama", "jina").
+            embedding_model: Embedding model name.
+            embedding_api_key: Optional API key override for embedding providers.
+            embedding_base_url: Optional base URL override for embedding providers.
 
         Example:
             >>> # Use defaults (reads OPENAI_API_KEY from environment)
@@ -128,8 +135,14 @@ class VectorGraphRAG:
                 settings_kwargs["openai_api_key"] = openai_api_key
             if llm_model:
                 settings_kwargs["llm_model"] = llm_model
+            if embedding_provider:
+                settings_kwargs["embedding_provider"] = embedding_provider
             if embedding_model:
                 settings_kwargs["embedding_model"] = embedding_model
+            if embedding_api_key:
+                settings_kwargs["embedding_api_key"] = embedding_api_key
+            if embedding_base_url:
+                settings_kwargs["embedding_base_url"] = embedding_base_url
 
             self.settings = Settings(**settings_kwargs)
 
@@ -1367,7 +1380,10 @@ def create_rag(
     collection_prefix: Optional[str] = None,
     openai_api_key: Optional[str] = None,
     llm_model: str = "gpt-4o-mini",
-    embedding_model: str = "text-embedding-3-small",
+    embedding_provider: Optional[str] = None,
+    embedding_model: Optional[str] = None,
+    embedding_api_key: Optional[str] = None,
+    embedding_base_url: Optional[str] = None,
 ) -> VectorGraphRAG:
     """
     Factory function to create a VectorGraphRAG instance.
@@ -1381,7 +1397,13 @@ def create_rag(
         collection_prefix: Prefix for collection names (e.g., graph/dataset name).
         openai_api_key: OpenAI API key. Uses environment variable if not provided.
         llm_model: LLM model name.
-        embedding_model: Embedding model name.
+        embedding_provider: Embedding provider name (e.g., "openai", "huggingface",
+            "ollama", "jina").
+        embedding_model: Embedding model name. If omitted with no provider, uses
+            "text-embedding-3-small". If omitted with a provider, uses that
+            provider's default model.
+        embedding_api_key: Optional API key override for embedding providers.
+        embedding_base_url: Optional base URL override for embedding providers.
 
     Returns:
         Configured VectorGraphRAG instance.
@@ -1391,6 +1413,10 @@ def create_rag(
         >>> rag = create_rag()
         >>> rag.rebuild_texts(["Your documents here..."])
     """
+    effective_embedding_model = embedding_model
+    if effective_embedding_model is None and embedding_provider is None:
+        effective_embedding_model = "text-embedding-3-small"
+
     return VectorGraphRAG(
         milvus_uri=milvus_uri,
         milvus_token=milvus_token,
@@ -1398,5 +1424,8 @@ def create_rag(
         collection_prefix=collection_prefix,
         openai_api_key=openai_api_key,
         llm_model=llm_model,
-        embedding_model=embedding_model,
+        embedding_provider=embedding_provider,
+        embedding_model=effective_embedding_model,
+        embedding_api_key=embedding_api_key,
+        embedding_base_url=embedding_base_url,
     )

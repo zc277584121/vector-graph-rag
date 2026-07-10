@@ -22,6 +22,7 @@ def test_settings():
         milvus_uri=temp_uri,
         openai_api_key="test-api-key",
         llm_model="gpt-4o-mini",
+        embedding_provider="openai",
         embedding_model="text-embedding-3-small",
         collection_prefix="api_test",
     )

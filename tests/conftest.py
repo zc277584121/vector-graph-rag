@@ -1,13 +1,14 @@
 """Pytest configuration and fixtures for Vector Graph RAG tests."""
 
 import os
-import pytest
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+import pytest
 
 from vector_graph_rag.config import Settings
-from vector_graph_rag.storage.milvus import MilvusStore
 from vector_graph_rag.graph.graph import Graph
+from vector_graph_rag.storage.milvus import MilvusStore
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ def mock_settings(temp_milvus_uri):
         milvus_uri=temp_milvus_uri,
         openai_api_key="test-api-key",
         llm_model="gpt-4o-mini",
+        embedding_provider="openai",
         embedding_model="text-embedding-3-small",
         collection_prefix="test",
     )

@@ -26,6 +26,12 @@
     pip install "vector-graph-rag[hf]"
     ```
 
+=== "With all embedding providers"
+
+    ```bash
+    pip install "vector-graph-rag[all]"
+    ```
+
 !!! note "Prerequisites"
     - Python 3.9+
     - An OpenAI API key (set `OPENAI_API_KEY` environment variable)
@@ -57,6 +63,7 @@ print(result.answer)
 rag = VectorGraphRAG(
     milvus_uri="./my_data.db",                    # local file (Milvus Lite)
     llm_model="gpt-4o",                           # LLM for extraction and reranking
+    embedding_provider="openai",                  # embedding provider
     embedding_model="text-embedding-3-large",      # embedding model
 )
 ```

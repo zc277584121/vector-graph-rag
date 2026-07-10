@@ -52,12 +52,15 @@ uv add "vector-graph-rag[loaders]"
 </details>
 
 <details>
-<summary><b>With local HuggingFace embedding models</b></summary>
+<summary><b>With additional embedding providers</b></summary>
 
 ```bash
-pip install "vector-graph-rag[hf]"
+pip install "vector-graph-rag[hf]"       # HuggingFace transformers
+pip install "vector-graph-rag[ollama]"   # Ollama
+pip install "vector-graph-rag[jina]"     # Jina AI
+pip install "vector-graph-rag[all]"      # all optional providers
 # or
-uv add "vector-graph-rag[hf]"
+uv add "vector-graph-rag[all]"
 ```
 
 </details>
@@ -165,6 +168,7 @@ print(result.answer)
 rag = VectorGraphRAG(
     milvus_uri="./my_data.db",          # or remote Milvus / Zilliz Cloud
     llm_model="gpt-4o",
+    embedding_provider="openai",
     embedding_model="text-embedding-3-large",
     collection_prefix="my_project",     # isolate multiple datasets
 )
@@ -174,6 +178,7 @@ All settings can also be configured via environment variables with `VGRAG_` pref
 
 ```bash
 VGRAG_LLM_MODEL=gpt-4o
+VGRAG_EMBEDDING_PROVIDER=openai
 VGRAG_EMBEDDING_MODEL=text-embedding-3-large
 VGRAG_MILVUS_URI=http://localhost:19530
 ```

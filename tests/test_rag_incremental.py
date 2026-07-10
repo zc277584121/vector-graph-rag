@@ -47,6 +47,7 @@ def create_test_rag(milvus_uri: str, collection_prefix: str) -> VectorGraphRAG:
     settings = Settings(
         milvus_uri=milvus_uri,
         openai_api_key="test-api-key",
+        embedding_provider="openai",
         collection_prefix=collection_prefix,
         final_top_k=3,
     )
