@@ -1,6 +1,6 @@
 [project]
 name = "vector-graph-rag"
-version = "0.1.4"
+version = "0.1.5"
 description = "A Graph RAG implementation using pure vector search with Milvus"
 readme = "README.md"
 license = { text = "MIT" }
@@ -132,6 +132,20 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vector_graph_rag"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.cc-use",
+    "/.memsearch",
+    "/blog",
+    "/dist",
+    "/evaluation/temp_logs",
+    "/frontend/docs",
+    "/logo_candidates",
+    "/output",
+    "/screenshots",
+    "/site",
+]
 
 [tool.ruff]
 line-length = 100
