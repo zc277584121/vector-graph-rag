@@ -46,7 +46,10 @@ settings = Settings(
 | `openai_api_key` | `Optional[str]` | `None` | OpenAI API key. Also read from `OPENAI_API_KEY` env var. |
 | `openai_base_url` | `Optional[str]` | `None` | Custom OpenAI-compatible API base URL (e.g. for Azure or local proxies). |
 | `llm_model` | `str` | `"gpt-4o-mini"` | Model name used for LLM calls (extraction, answering, reranking). |
+| `embedding_provider` | `Optional[str]` | `None` | Embedding provider name. Use `openai`, `huggingface`, `google`/`gemini`, `voyage`, `jina`, `mistral`, `ollama`, `local`, or `onnx`. |
 | `embedding_model` | `str` | `"text-embedding-3-large"` | Model name used for embedding generation. |
+| `embedding_api_key` | `Optional[str]` | `None` | Optional API key override for embedding providers. Provider-specific environment variables are used when omitted. |
+| `embedding_base_url` | `Optional[str]` | `None` | Optional base URL override for embedding providers that support it, such as OpenAI-compatible APIs and Ollama. |
 | `embedding_dimension` | `int` | `3072` | Dimensionality of the embedding vectors. |
 | `llm_temperature` | `float` | `0.0` | Temperature for LLM generation. |
 | `use_llm_cache` | `bool` | `True` | Whether to cache LLM responses to avoid redundant API calls. |
@@ -86,6 +89,8 @@ settings = Settings(
 # .env
 OPENAI_API_KEY=sk-...
 VGRAG_LLM_MODEL=gpt-4o
+VGRAG_EMBEDDING_PROVIDER=openai
+VGRAG_EMBEDDING_MODEL=text-embedding-3-small
 VGRAG_MILVUS_URI=http://localhost:19530
 VGRAG_ENTITY_TOP_K=30
 VGRAG_EXPANSION_DEGREE=2
@@ -116,7 +121,10 @@ rag = VectorGraphRAG(
     collection_prefix=None,     # Optional[str] — override collection_prefix
     openai_api_key=None,        # Optional[str] — override openai_api_key
     llm_model=None,             # Optional[str] — override llm_model
+    embedding_provider=None,    # Optional[str] — override embedding_provider
     embedding_model=None,       # Optional[str] — override embedding_model
+    embedding_api_key=None,     # Optional[str] — override embedding_api_key
+    embedding_base_url=None,    # Optional[str] — override embedding_base_url
 )
 ```
 
@@ -124,6 +132,42 @@ rag = VectorGraphRAG(
     Keyword arguments passed directly to the constructor (e.g. `milvus_uri`) take
     precedence over values in the `settings` object, which in turn take precedence
     over environment variables and `.env` file values.
+
+### Embedding Providers
+
+Set `embedding_provider` explicitly for new applications. If it is omitted, Vector Graph RAG keeps a legacy compatibility path that infers the provider from `embedding_model`, but that inference is deprecated and planned for removal in v1.0.0.
+
+```python
+from vector_graph_rag import VectorGraphRAG
+
+# OpenAI or an OpenAI-compatible embedding endpoint
+rag = VectorGraphRAG(
+    embedding_provider="openai",
+    embedding_model="text-embedding-3-small",
+)
+
+# Local HuggingFace transformers model
+rag = VectorGraphRAG(
+    embedding_provider="huggingface",
+    embedding_model="BAAI/bge-large-en-v1.5",
+)
+
+# Ollama local embedding server
+rag = VectorGraphRAG(
+    embedding_provider="ollama",
+    embedding_model="nomic-embed-text",
+    embedding_base_url="http://localhost:11434",
+)
+
+# Jina AI
+rag = VectorGraphRAG(
+    embedding_provider="jina",
+    embedding_model="jina-embeddings-v4",
+    embedding_api_key="jina_...",
+)
+```
+
+Install optional provider dependencies as needed: `hf`, `google`, `voyage`, `jina`, `mistral`, `ollama`, `local`, or `onnx`.
 
 ### Methods
 
@@ -732,7 +776,10 @@ rag = create_rag(
     collection_prefix=None,                 # Optional[str]
     openai_api_key=None,                    # Optional[str]
     llm_model="gpt-4o-mini",               # str
-    embedding_model="text-embedding-3-small",  # str
+    embedding_provider=None,                # Optional[str]
+    embedding_model=None,                   # Optional[str]
+    embedding_api_key=None,                 # Optional[str]
+    embedding_base_url=None,                # Optional[str]
 )
 ```
 
@@ -743,14 +790,19 @@ rag = create_rag(
 | `collection_prefix` | `Optional[str]` | `None` | Prefix for collection names (multi-dataset isolation). |
 | `openai_api_key` | `Optional[str]` | `None` | OpenAI API key. Falls back to environment variable. |
 | `llm_model` | `str` | `"gpt-4o-mini"` | LLM model to use. |
-| `embedding_model` | `str` | `"text-embedding-3-small"` | Embedding model to use. |
+| `embedding_provider` | `Optional[str]` | `None` | Embedding provider name. |
+| `embedding_model` | `Optional[str]` | `None` | Embedding model to use. If omitted with no provider, `create_rag()` uses `text-embedding-3-small`. If omitted with a provider, the provider default is used. |
+| `embedding_api_key` | `Optional[str]` | `None` | Optional API key override for embedding providers. |
+| `embedding_base_url` | `Optional[str]` | `None` | Optional base URL override for embedding providers. |
 
 **Returns:** [`VectorGraphRAG`](#vectorgraphrag)
 
 !!! note "Default embedding model"
     `create_rag()` defaults to `text-embedding-3-small` (not `text-embedding-3-large`
-    as in `Settings`). This is a deliberate choice for quick-start scenarios where lower
-    cost and faster embedding are preferred.
+    as in `Settings`) when `embedding_provider` is not specified. This is a deliberate
+    choice for quick-start scenarios where lower cost and faster embedding are preferred.
+    When `embedding_provider` is specified and `embedding_model` is omitted, the provider's
+    recommended default model is used.
 
 ```python
 from vector_graph_rag import create_rag

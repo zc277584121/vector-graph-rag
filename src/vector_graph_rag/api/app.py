@@ -300,12 +300,19 @@ class SettingsResponse(BaseModel):
     """Response for system settings."""
 
     llm_model: str = Field(..., description="LLM model name")
+    embedding_provider: Optional[str] = Field(None, description="Embedding provider name")
     embedding_model: str = Field(..., description="Embedding model name")
     embedding_dimension: int = Field(..., description="Embedding dimension")
     milvus_uri: str = Field(..., description="Milvus connection URI")
     milvus_db: Optional[str] = Field(None, description="Milvus database name")
     openai_api_key_set: bool = Field(..., description="Whether OpenAI API key is configured")
     openai_base_url: Optional[str] = Field(None, description="Custom OpenAI base URL")
+    embedding_api_key_set: bool = Field(
+        default=False, description="Whether an embedding-specific API key is configured"
+    )
+    embedding_base_url: Optional[str] = Field(
+        default=None, description="Custom embedding provider base URL"
+    )
 
 
 # ==================== Application Factory ====================
@@ -392,12 +399,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         settings = app.state.settings
         return SettingsResponse(
             llm_model=settings.llm_model,
+            embedding_provider=settings.embedding_provider,
             embedding_model=settings.embedding_model,
             embedding_dimension=settings.embedding_dimension,
             milvus_uri=settings.milvus_uri,
             milvus_db=settings.milvus_db,
             openai_api_key_set=bool(settings.openai_api_key),
             openai_base_url=settings.openai_base_url,
+            embedding_api_key_set=bool(settings.embedding_api_key),
+            embedding_base_url=settings.embedding_base_url,
         )
 
     @app.delete("/graph/{graph_name}", response_model=DeleteResponse, tags=["System"])

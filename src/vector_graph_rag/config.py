@@ -33,6 +33,22 @@ class Settings(BaseSettings):
         default="text-embedding-3-large",
         description="Embedding model for vector representations (HuggingFace model name or OpenAI model name)",
     )
+    embedding_provider: Optional[str] = Field(
+        default=None,
+        description=(
+            "Embedding provider name. Supported providers include openai, huggingface, "
+            "google, gemini, voyage, jina, mistral, ollama, local, and onnx. "
+            "If omitted, a legacy model-name inference path is used for compatibility."
+        ),
+    )
+    embedding_api_key: Optional[str] = Field(
+        default=None,
+        description="Optional API key override for embedding providers.",
+    )
+    embedding_base_url: Optional[str] = Field(
+        default=None,
+        description="Optional base URL override for embedding providers that support it.",
+    )
     embedding_dimension: int = Field(
         default=3072,
         description="Dimension of embedding vectors (3072 for text-embedding-3-large, 1024 for bge-large)",

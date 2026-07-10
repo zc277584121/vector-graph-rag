@@ -87,24 +87,30 @@ Returns the current server configuration. Sensitive values (such as the API key)
 ```json
 {
   "llm_model": "gpt-4o",
+  "embedding_provider": "openai",
   "embedding_model": "text-embedding-3-small",
   "embedding_dimension": 1536,
   "milvus_uri": "./vector_graph_rag.db",
   "milvus_db": "default",
   "openai_api_key_set": true,
-  "openai_base_url": "https://api.openai.com/v1"
+  "openai_base_url": "https://api.openai.com/v1",
+  "embedding_api_key_set": false,
+  "embedding_base_url": null
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
 | `llm_model` | `string` | The LLM model used for generation. |
+| `embedding_provider` | `string` | The embedding provider used for vector search. |
 | `embedding_model` | `string` | The embedding model used for vector search. |
 | `embedding_dimension` | `integer` | Dimensionality of the embedding vectors. |
 | `milvus_uri` | `string` | Milvus connection URI. |
 | `milvus_db` | `string` | Milvus database name. |
 | `openai_api_key_set` | `boolean` | Whether the OpenAI API key is configured. |
 | `openai_base_url` | `string` | The base URL for the OpenAI-compatible API. |
+| `embedding_api_key_set` | `boolean` | Whether an embedding-specific API key is configured. |
+| `embedding_base_url` | `string` | The base URL for the embedding provider, if configured. |
 
 **curl Example**
 
