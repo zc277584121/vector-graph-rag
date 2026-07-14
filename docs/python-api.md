@@ -177,7 +177,7 @@ Legacy compatibility wrapper for rebuilding the graph from plain text strings.
 
 !!! warning "Full rebuild"
     This method delegates to `rebuild_texts()` and rebuilds the full knowledge base.
-    This legacy convenience API is planned for removal in v1.0.0. Use [`rebuild_texts`](#rebuild_texts) for full refreshes, or [`upsert_documents`](#upsert_documents) for document-level incremental updates.
+    This legacy convenience API is planned for removal in v1.0.0. Use [`rebuild_texts`](#rebuild_texts) for full refreshes, or [`upsert_documents_by_source`](#upsert_documents_by_source) for source-level incremental updates.
 
 ```python
 def add_texts(
@@ -251,7 +251,7 @@ result = rag.rebuild_texts([
 Legacy compatibility wrapper for rebuilding the graph from [LangChain `Document`](https://python.langchain.com/docs/modules/data_connection/document_loaders/) objects.
 
 !!! warning "Full rebuild"
-    `add_documents()` keeps its original behavior for backward compatibility: it drops and recreates the Milvus collections for this graph before indexing the provided documents. This legacy API is planned for removal in v1.0.0. Use [`rebuild_documents`](#rebuild_documents) when you want this behavior explicitly, or [`upsert_documents`](#upsert_documents) for incremental create/update.
+    `add_documents()` keeps its original behavior for backward compatibility: it drops and recreates the Milvus collections for this graph before indexing the provided documents. This legacy API is planned for removal in v1.0.0. Use [`rebuild_documents`](#rebuild_documents) when you want this behavior explicitly, or [`upsert_documents_by_source`](#upsert_documents_by_source) for source-level incremental create/update.
 
 ```python
 def add_documents(
@@ -311,7 +311,7 @@ Use this for initial bulk indexing, benchmark rebuilds, or when you intentionall
 Legacy compatibility wrapper for rebuilding the graph from documents where triplets have already been extracted externally.
 
 !!! warning "Full rebuild"
-    This method delegates to `rebuild_documents_with_triplets()` and rebuilds the full knowledge base. This legacy convenience API is planned for removal in v1.0.0. For pre-extracted triplets in an incremental update, put the triplets in each chunk's `metadata["triplets"]` and call [`upsert_documents`](#upsert_documents) with `extract_triplets=False`.
+    This method delegates to `rebuild_documents_with_triplets()` and rebuilds the full knowledge base. This legacy convenience API is planned for removal in v1.0.0. For pre-extracted triplets in an incremental update, put the triplets in each chunk's `metadata["triplets"]` and call [`upsert_documents_by_source`](#upsert_documents_by_source) with `extract_triplets=False`.
 
 ```python
 def add_documents_with_triplets(
@@ -375,14 +375,15 @@ Optional `metadata` is stored on the passage and can be used by query filters.
 
 ---
 
-#### `upsert_documents`
+#### `upsert_documents_by_source`
 
-Incrementally create or replace one source document. A source document can be a file, page, message, or any other business-level object. The `documents` argument contains the parsed chunks/passages for that source document.
+Incrementally create or replace all chunks that belong to one source. A source can be a file, page, message, SharePoint item, business record, or any other stable external object. In Vector Graph RAG, a LangChain `Document` is a passage/chunk; source ownership is represented by `metadata["source"]` by default.
 
 ```python
-def upsert_documents(
-    document_id: str,
+def upsert_documents_by_source(
     documents: List[Document],
+    source: Optional[str] = None,
+    source_field: str = "source",
     metadata: Optional[Dict[str, Any]] = None,
     extract_triplets: bool = True,
     show_progress: bool = True,
@@ -391,15 +392,18 @@ def upsert_documents(
 
 | Parameter | Description |
 |---|---|
-| `document_id` | Stable source document ID, such as a file ID or message ID. |
-| `documents` | Parsed chunks/passages for this source document. Missing chunk IDs are generated deterministically from `document_id` and chunk index. |
-| `metadata` | Source-level metadata merged into every chunk. |
+| `documents` | Parsed chunks/passages for one source. If a chunk has `Document.id`, it is used as the passage ID; otherwise a deterministic passage ID is generated from `source` and chunk index. |
+| `source` | Optional stable source value. If omitted, all documents must include the same `Document.metadata[source_field]` value. |
+| `source_field` | Metadata field used to group chunks by source. Defaults to `"source"`. |
+| `metadata` | Source-level metadata merged into every chunk. It must not conflict with `source` or the chunks' `source_field` values. |
 | `extract_triplets` | If `True`, extract triplets from each chunk. If triplets are already in `metadata["triplets"]`, set this to `False`. |
 | `show_progress` | Show a progress bar. |
 
 **Returns:** [`ExtractionResult`](#extractionresult)
 
-If `document_id` does not exist, the method inserts a new document. If it already exists, the method deletes the previous chunks for that document, updates graph references, and inserts the new chunks without rebuilding unrelated documents.
+If the source does not exist, the method inserts a new source. If it already exists, the method deletes the previous chunks for that source, updates graph references, and inserts the new chunks without rebuilding unrelated sources.
+
+The method accepts exactly one source per call. If `source` is not provided and the documents contain multiple `metadata[source_field]` values, it raises `ValueError`.
 
 ```python
 from langchain_core.documents import Document
@@ -407,39 +411,48 @@ from langchain_core.documents import Document
 chunks = [
     Document(
         page_content="Alpha owns the blue database.",
-        metadata={"triplets": [["Alpha", "owns", "blue database"]]},
+        metadata={
+            "source": "sharepoint:file-123",
+            "triplets": [["Alpha", "owns", "blue database"]],
+        },
     )
 ]
 
-rag.upsert_documents(
-    document_id="sharepoint:file-123",
+rag.upsert_documents_by_source(
     documents=chunks,
-    metadata={"tenant_id": "team_a", "source": "sharepoint"},
+    metadata={"tenant_id": "team_a"},
     extract_triplets=False,
 )
 ```
 
 ---
 
-#### `delete_documents`
+#### `delete_documents_by_source`
 
-Incrementally delete one source document and remove graph references that only belonged to that document.
+Incrementally delete all chunks that belong to one source and remove graph references that only belonged to that source.
 
 ```python
-def delete_documents(document_id: str) -> bool
+def delete_documents_by_source(
+    source: str,
+    source_field: str = "source",
+) -> bool
 ```
 
 | Parameter | Description |
 |---|---|
-| `document_id` | Stable source document ID previously used with `upsert_documents()`. |
+| `source` | Stable source value previously used with `upsert_documents_by_source()`. |
+| `source_field` | Metadata field used to group chunks by source. Defaults to `"source"`. |
 
 **Returns:** `True` if at least one passage was deleted; otherwise `False`.
 
-Shared entities and relations are preserved when other documents still reference them. Orphaned relations and entities are removed.
+Shared entities and relations are preserved when other sources still reference them. Orphaned relations and entities are removed.
 
 ```python
-deleted = rag.delete_documents("sharepoint:file-123")
+deleted = rag.delete_documents_by_source("sharepoint:file-123")
 ```
+
+!!! warning "v0.2.0 migration"
+    `upsert_documents(document_id=...)` and `delete_documents(document_id)` were removed because `Document` means passage/chunk in this project. These methods now raise `RuntimeError` with migration guidance. Use `upsert_documents_by_source()` and `delete_documents_by_source()` with a stable `metadata["source"]` value.
 
 ---
 
@@ -654,7 +667,7 @@ print(f"Final passages: {len(result.passages)}")
 
 ## ExtractionResult
 
-A data class returned by document ingestion methods, including legacy `add_*`, `rebuild_*`, and `upsert_documents()`. It summarises what was ingested and extracted.
+A data class returned by document ingestion methods, including legacy `add_*`, `rebuild_*`, and `upsert_documents_by_source()`. It summarises what was ingested and extracted.
 
 ```python
 from vector_graph_rag import ExtractionResult

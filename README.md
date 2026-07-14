@@ -105,18 +105,20 @@ rag.rebuild_documents_with_triplets([
 <details>
 <summary>🔄 <b>Incremental document updates</b> — click to expand</summary>
 
-Use `upsert_documents()` when a source file, message, or page is created or modified.
-The method replaces only that source document's chunks and graph references.
+Use `upsert_documents_by_source()` when a source file, message, or page is
+created or modified. In Vector Graph RAG, a `Document` is a passage/chunk; the
+source object is identified by `metadata["source"]` or the explicit `source`
+argument. The method replaces only that source's chunks and graph references.
 
 ```python
 from langchain_core.documents import Document
 
-rag.upsert_documents(
-    document_id="sharepoint:file-123",
+rag.upsert_documents_by_source(
     documents=[
         Document(
             page_content="Einstein developed relativity at Princeton.",
             metadata={
+                "source": "sharepoint:file-123",
                 "triplets": [
                     ["Einstein", "developed", "relativity"],
                     ["Einstein", "worked at", "Princeton"],
@@ -124,12 +126,16 @@ rag.upsert_documents(
             },
         ),
     ],
-    metadata={"source": "sharepoint"},
     extract_triplets=False,
 )
 
-rag.delete_documents("sharepoint:file-123")
+rag.delete_documents_by_source("sharepoint:file-123")
 ```
+
+> **Migration note:** v0.1.5 exposed `upsert_documents(document_id=...)` and
+> `delete_documents(document_id)`. These names were removed in v0.2.0 because
+> `Document` means passage/chunk in this project. Use the `*_by_source()` APIs
+> shown above.
 
 The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned
 for removal in v1.0.0. For explicit full refreshes, use `rebuild_texts()`,

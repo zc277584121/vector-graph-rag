@@ -4334,7 +4334,7 @@ wheels = [
 
 [[package]]
 name = "vector-graph-rag"
-version = "0.1.5"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-core" },

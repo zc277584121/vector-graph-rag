@@ -11,6 +11,7 @@ Users should interact with passages through the Graph abstraction layer.
 """
 
 import logging
+import re
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +22,8 @@ from vector_graph_rag.config import Settings, get_settings
 from vector_graph_rag.storage.embeddings import EmbeddingModel
 
 logger = logging.getLogger(__name__)
+
+_FIELD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def generate_id() -> str:
@@ -83,6 +86,16 @@ class MilvusStore:
     def _quote_string(value: str) -> str:
         """Quote a string value for Milvus filter expressions."""
         return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    @staticmethod
+    def _validate_field_name(field_name: str) -> str:
+        """Validate a metadata field name for safe filter construction."""
+        if not isinstance(field_name, str) or not _FIELD_NAME_RE.fullmatch(field_name):
+            raise ValueError(
+                "source_field must be a simple metadata field name containing only "
+                "letters, numbers, and underscores, and it must not start with a number."
+            )
+        return field_name
 
     def _create_collection(
         self,
@@ -596,17 +609,17 @@ class MilvusStore:
             filter=filter_expr,
             output_fields=output_fields or ["id", "text", "entity_ids", "relation_ids"],
         )
-        return results
+        return list(results)
 
     def get_passages_by_document_id(self, document_id: str) -> List[Dict[str, Any]]:
         """
-        Get passages that belong to a source document.
+        Get passages that belong to a legacy document_id metadata value.
 
-        Source-document ownership is stored in passage metadata under
-        ``document_id`` by VectorGraphRAG.upsert_documents().
+        This is retained for compatibility with data written by older
+        incremental APIs. New source-level updates use get_passages_by_source().
 
         Args:
-            document_id: Source document ID.
+            document_id: Legacy source document ID.
 
         Returns:
             Matching passage records with graph adjacency metadata.
@@ -616,7 +629,30 @@ class MilvusStore:
             filter=f"document_id == {self._quote_string(document_id)}",
             output_fields=["id", "text", "entity_ids", "relation_ids", "document_id"],
         )
-        return results
+        return list(results)
+
+    def get_passages_by_source(
+        self,
+        source: str,
+        source_field: str = "source",
+    ) -> List[Dict[str, Any]]:
+        """
+        Get passages that belong to a source metadata value.
+
+        Args:
+            source: Stable source value stored in passage metadata.
+            source_field: Metadata field used to group chunks by source.
+
+        Returns:
+            Matching passage records with graph adjacency metadata.
+        """
+        source_field = self._validate_field_name(source_field)
+        results = self.client.query(
+            collection_name=self.passage_collection,
+            filter=f"{source_field} == {self._quote_string(source)}",
+            output_fields=["id", "text", "entity_ids", "relation_ids", source_field],
+        )
+        return list(results)
 
     def query_passage_ids(self, filter: str) -> List[str]:
         """

@@ -161,7 +161,7 @@ curl -X DELETE http://localhost:8000/graph/my_graph
 Indexes documents by rebuilding the selected graph. Optionally extracts knowledge graph triplets from the text using the configured LLM.
 
 !!! warning "Full rebuild"
-    This endpoint uses the Python full-rebuild ingestion path. Calling it replaces the current graph contents for the selected `graph_name`. Document-level incremental upsert/delete is currently available through the Python API via `upsert_documents()` and `delete_documents()`.
+    This endpoint uses the Python full-rebuild ingestion path. Calling it replaces the current graph contents for the selected `graph_name`. Source-level incremental upsert/delete is currently available through the Python API via `upsert_documents_by_source()` and `delete_documents_by_source()`.
 
 **Query Parameters**
 
@@ -230,7 +230,7 @@ curl -X POST "http://localhost:8000/add_documents?graph_name=my_graph" \
 Imports documents from URLs or local file paths. Supports chunking for large documents.
 
 !!! warning "Full rebuild"
-    Imported documents are indexed through the full-rebuild ingestion path for the target graph. Use the Python API for document-level incremental updates after parsing files externally.
+    Imported documents are indexed through the full-rebuild ingestion path for the target graph. Use the Python API for source-level incremental updates after parsing files externally.
 
 **Request Body**
 
@@ -402,7 +402,7 @@ Retrieves a single document by its ID.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `document_id` | `string` | The document ID. |
+| `document_id` | `string` | The passage/document ID used by the REST document CRUD endpoints. This is not the source key used by `upsert_documents_by_source()`. |
 
 **Query Parameters**
 

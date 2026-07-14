@@ -134,7 +134,7 @@ finance_rag = VectorGraphRAG(milvus_uri="./data.db", collection_prefix="finance"
 ## Adding Documents
 
 !!! warning "Full rebuild vs incremental updates"
-    `add_texts()`, `add_documents()`, and `add_documents_with_triplets()` rebuild the full knowledge base for the current collection prefix. These legacy convenience APIs are planned for removal in v1.0.0. Use `rebuild_texts()`, `rebuild_documents()`, or `rebuild_documents_with_triplets()` for full refreshes. For source-document create/update/delete flows, use `upsert_documents()` and `delete_documents()`.
+    `add_texts()`, `add_documents()`, and `add_documents_with_triplets()` rebuild the full knowledge base for the current collection prefix. These legacy convenience APIs are planned for removal in v1.0.0. Use `rebuild_texts()`, `rebuild_documents()`, or `rebuild_documents_with_triplets()` for full refreshes. For source create/update/delete flows, use `upsert_documents_by_source()` and `delete_documents_by_source()`.
 
 ### From Text Strings
 
@@ -184,17 +184,17 @@ rag.rebuild_documents(result.documents, extract_triplets=True)
 
 ### Incremental Updates
 
-Use `upsert_documents()` when a source file, page, or message is created or modified. The method replaces only that source document's chunks and graph references.
+Use `upsert_documents_by_source()` when a source file, page, or message is created or modified. In Vector Graph RAG, a `Document` is a passage/chunk, and `metadata["source"]` identifies the source object whose chunks should be replaced.
 
 ```python
 from langchain_core.documents import Document
 
-rag.upsert_documents(
-    document_id="sharepoint:file-123",
+rag.upsert_documents_by_source(
     documents=[
         Document(
             page_content="Einstein developed relativity at Princeton.",
             metadata={
+                "source": "sharepoint:file-123",
                 "triplets": [
                     ["Einstein", "developed", "relativity"],
                     ["Einstein", "worked at", "Princeton"],
@@ -202,15 +202,17 @@ rag.upsert_documents(
             },
         )
     ],
-    metadata={"source": "sharepoint"},
     extract_triplets=False,
 )
 
-rag.delete_documents("sharepoint:file-123")
+rag.delete_documents_by_source("sharepoint:file-123")
 ```
 
+!!! warning "v0.2.0 migration"
+    `upsert_documents(document_id=...)` and `delete_documents(document_id)` were removed because `Document` means passage/chunk in this project. Use `upsert_documents_by_source()` and `delete_documents_by_source()` with a stable `metadata["source"]` value instead.
+
 !!! note "Consistency model"
-    Incremental updates perform a document-level cascade across passages, entities, and relations. They are not transactionally atomic, so avoid interrupting or concurrently mutating the same collection prefix during an update.
+    Incremental updates perform a source-level cascade across passages, entities, and relations. They are not transactionally atomic, so avoid interrupting or concurrently mutating the same collection prefix during an update.
 
 ## Querying
 

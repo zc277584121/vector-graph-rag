@@ -43,27 +43,25 @@ Frequently asked questions about Vector Graph RAG — covering when to use it, c
     For very large corpora, consider using a remote Milvus instance rather than Milvus Lite for better performance and scalability.
 
 ??? note "How do I update or delete one source document?"
-    Use `upsert_documents()` for source-document create/update and `delete_documents()` for delete. A source document can be a file, web page, message, or another business-level object. Its parsed chunks are passed as LangChain `Document` objects.
+    Use `upsert_documents_by_source()` for source create/update and `delete_documents_by_source()` for delete. A source can be a file, web page, message, or another business-level object. Its parsed chunks are passed as LangChain `Document` objects, and each chunk should carry the same stable `metadata["source"]` value.
 
     ```python
     from langchain_core.documents import Document
 
-    rag.upsert_documents(
-        document_id="file-123",
+    rag.upsert_documents_by_source(
         documents=[
             Document(
                 page_content="Updated document chunk text.",
-                metadata={"page": 1},
+                metadata={"source": "file-123", "page": 1},
             )
         ],
-        metadata={"source": "sharepoint"},
         extract_triplets=True,
     )
 
-    rag.delete_documents("file-123")
+    rag.delete_documents_by_source("file-123")
     ```
 
-    Incremental updates replace only the chunks and graph references for that `document_id`. They are not transactionally atomic, so avoid interrupting or concurrently mutating the same collection prefix during an update.
+    Incremental updates replace only the chunks and graph references for that source value. They are not transactionally atomic, so avoid interrupting or concurrently mutating the same collection prefix during an update.
 
 ??? note "Can I use local/open-source LLMs?"
     Yes. Vector Graph RAG uses the OpenAI-compatible API format, so any LLM that exposes an OpenAI-compatible endpoint will work. This includes local models served via [Ollama](https://ollama.com/), [vLLM](https://github.com/vllm-project/vllm), [LM Studio](https://lmstudio.ai/), or any other OpenAI-compatible server. You can configure the base URL and model name when initializing the RAG instance. Keep in mind that triplet extraction and reranking quality depend heavily on the LLM's capability — weaker models may produce incomplete or inaccurate triplets, which directly affects retrieval quality. For best results, use a model with strong instruction-following and reasoning abilities.

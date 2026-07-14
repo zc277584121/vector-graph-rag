@@ -114,7 +114,7 @@ print(result.answer)
 ```
 
 !!! note "Ingestion semantics"
-    The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned for removal in v1.0.0. Use `rebuild_texts()`, `rebuild_documents()`, or `rebuild_documents_with_triplets()` for full refreshes, and use `upsert_documents()` / `delete_documents()` when a source file, page, or message changes later.
+    The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned for removal in v1.0.0. Use `rebuild_texts()`, `rebuild_documents()`, or `rebuild_documents_with_triplets()` for full refreshes, and use `upsert_documents_by_source()` / `delete_documents_by_source()` when a source file, page, or message changes later.
 
 !!! tip "Getting Started"
     See the [Getting Started](getting-started.md) guide for installation and configuration options.

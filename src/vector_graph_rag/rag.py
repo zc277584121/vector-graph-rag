@@ -230,20 +230,82 @@ class VectorGraphRAG:
         return [value for value in values if value not in removed]
 
     @staticmethod
-    def _make_passage_id(document_id: str, chunk_index: int) -> str:
+    def _normalize_source_value(value: Any, field_name: str) -> str:
+        """Validate and normalize a source metadata value."""
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f'{field_name} must be a non-empty string.')
+        return value.strip()
+
+    @staticmethod
+    def _make_passage_id(source: str, chunk_index: int) -> str:
         """Create a stable Milvus-safe passage ID for a document chunk."""
-        digest = hashlib.sha256(f"{document_id}:{chunk_index}".encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(f"{source}:{chunk_index}".encode("utf-8")).hexdigest()
         return f"doc_{digest[:60]}"
+
+    def _resolve_upsert_source(
+        self,
+        documents: List[Document],
+        source: Optional[str],
+        source_field: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Resolve the single source value for a by-source document update."""
+        self._store._validate_field_name(source_field)
+        if not documents:
+            raise ValueError("documents must not be empty.")
+
+        explicit_source = (
+            self._normalize_source_value(source, "source") if source is not None else None
+        )
+        observed_sources: List[str] = []
+
+        if metadata and source_field in metadata and metadata[source_field] is not None:
+            observed_sources.append(
+                self._normalize_source_value(metadata[source_field], source_field)
+            )
+
+        for doc in documents:
+            doc_metadata = dict(doc.metadata or {})
+            if source_field in doc_metadata and doc_metadata[source_field] is not None:
+                observed_sources.append(
+                    self._normalize_source_value(doc_metadata[source_field], source_field)
+                )
+
+        unique_sources = set(observed_sources)
+        if explicit_source is not None:
+            conflicting_sources = unique_sources - {explicit_source}
+            if conflicting_sources:
+                conflicts = ", ".join(sorted(conflicting_sources))
+                raise ValueError(
+                    f'documents contain {source_field} values that differ from source '
+                    f'"{explicit_source}": {conflicts}'
+                )
+            return explicit_source
+
+        if not unique_sources:
+            raise ValueError(
+                f'documents must include metadata["{source_field}"] or source must be provided.'
+            )
+
+        if len(unique_sources) > 1:
+            sources = ", ".join(sorted(unique_sources))
+            raise ValueError(
+                f"upsert_documents_by_source() expects one source per call, but found "
+                f"multiple {source_field} values: {sources}"
+            )
+
+        return next(iter(unique_sources))
 
     def _prepare_upsert_documents(
         self,
-        document_id: str,
+        source: str,
         documents: List[Document],
+        source_field: str = "source",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> List[Document]:
-        """Copy documents and attach source-document metadata for upsert."""
-        if not document_id:
-            raise ValueError("document_id must not be empty.")
+        """Copy documents and attach source metadata for by-source upsert."""
+        if not source:
+            raise ValueError("source must not be empty.")
         if not documents:
             raise ValueError("documents must not be empty.")
 
@@ -251,13 +313,12 @@ class VectorGraphRAG:
         base_metadata = dict(metadata or {})
 
         for chunk_index, doc in enumerate(documents):
-            passage_id = doc.id or self._make_passage_id(document_id, chunk_index)
+            passage_id = doc.id or self._make_passage_id(source, chunk_index)
             chunk_metadata = {
                 **base_metadata,
                 **dict(doc.metadata or {}),
-                "document_id": document_id,
+                source_field: source,
                 "chunk_index": chunk_index,
-                "chunk_id": passage_id,
             }
             prepared.append(
                 Document(
@@ -434,10 +495,11 @@ class VectorGraphRAG:
         entity_embeddings: List[List[float]],
         relation_embeddings: List[List[float]],
         passage_embeddings: List[List[float]],
-        document_id: str,
+        source: str,
+        source_field: str,
         show_progress: bool,
     ) -> Tuple[Dict[str, str], Dict[str, str]]:
-        """Insert graph records for one source document, reusing existing nodes."""
+        """Insert graph records for one source, reusing existing nodes."""
         entity_texts = builder.get_entity_texts()
         relation_texts = builder.get_relation_texts()
         existing_entities = self._store._get_entities_by_texts(entity_texts)
@@ -454,12 +516,12 @@ class VectorGraphRAG:
 
         existing_passages = self._store.get_passages_by_ids(
             builder.passage_ids,
-            output_fields=["id", "text", "document_id"],
+            output_fields=["id", "text", source_field],
         )
         for passage in existing_passages:
-            if passage.get("document_id") != document_id:
+            if passage.get(source_field) != source:
                 raise ValueError(
-                    f'Passage ID "{passage["id"]}" already belongs to another document.'
+                    f'Passage ID "{passage["id"]}" already belongs to another source.'
                 )
 
         if show_progress:
@@ -636,8 +698,8 @@ class VectorGraphRAG:
         Warning:
             This legacy convenience method rebuilds the full knowledge base and
             is planned for removal in v1.0.0. Use rebuild_texts() for full
-            refreshes, or upsert_documents() for document-level incremental
-            create/update.
+            refreshes, or upsert_documents_by_source() for source-level
+            incremental create/update.
 
         This is a convenience method that converts texts to Document objects
         and calls rebuild_texts().
@@ -666,8 +728,8 @@ class VectorGraphRAG:
         """
         warnings.warn(
             "add_texts() is deprecated and will be removed in v1.0.0. "
-            "Use rebuild_texts() for full refreshes, or upsert_documents() "
-            "for document-level incremental create/update.",
+            "Use rebuild_texts() for full refreshes, or upsert_documents_by_source() "
+            "for source-level incremental create/update.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -731,8 +793,8 @@ class VectorGraphRAG:
         Warning:
             This method keeps its original full-rebuild behavior for backward
             compatibility. It drops and recreates the Milvus collections before
-            indexing the provided documents. Use upsert_documents() for
-            document-level incremental create/update. This legacy method is
+            indexing the provided documents. Use upsert_documents_by_source()
+            for source-level incremental create/update. This legacy method is
             planned for removal in v1.0.0; use rebuild_documents() for full
             refreshes.
 
@@ -762,8 +824,8 @@ class VectorGraphRAG:
         """
         warnings.warn(
             "add_documents() is deprecated and will be removed in v1.0.0. "
-            "Use rebuild_documents() for full refreshes, or upsert_documents() "
-            "for document-level incremental create/update.",
+            "Use rebuild_documents() for full refreshes, or upsert_documents_by_source() "
+            "for source-level incremental create/update.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -838,27 +900,27 @@ class VectorGraphRAG:
 
         return self._extraction_result
 
-    def upsert_documents(
+    def upsert_documents_by_source(
         self,
-        document_id: str,
         documents: List[Document],
+        source: Optional[str] = None,
+        source_field: str = "source",
         metadata: Optional[Dict[str, Any]] = None,
         extract_triplets: bool = True,
         show_progress: bool = True,
     ) -> ExtractionResult:
         """
-        Incrementally create or replace one source document.
+        Incrementally create or replace documents that belong to one source.
 
-        The source document can be a file, message, page, or any business-level
-        object. Its parsed chunks are passed as LangChain Document objects. This
-        method replaces only chunks that belong to ``document_id`` and leaves
-        other documents in the knowledge base untouched.
+        In this project, a LangChain Document is a passage/chunk. This method
+        uses a stable source metadata value to replace all chunks that belong to
+        one source object, such as a file, URL, message, or business record.
 
         Args:
-            document_id: Stable source document ID.
-            documents: Parsed chunks/passages for this source document.
-                       Missing chunk IDs are generated deterministically from
-                       document_id and chunk index.
+            documents: Parsed chunks/passages for one source.
+            source: Optional stable source value. If omitted, it is inferred
+                    from ``Document.metadata[source_field]``.
+            source_field: Metadata field used to group chunks by source.
             metadata: Optional source-level metadata merged into each chunk.
             extract_triplets: Whether to extract triplets using LLM.
             show_progress: Whether to show progress bars.
@@ -867,14 +929,25 @@ class VectorGraphRAG:
             ExtractionResult with graph statistics for this document update.
 
         Example:
-            >>> rag.upsert_documents(
-            ...     document_id="sharepoint:file-123",
-            ...     documents=[Document(page_content="Einstein developed relativity.")],
+            >>> rag.upsert_documents_by_source(
+            ...     documents=[
+            ...         Document(
+            ...             page_content="Einstein developed relativity.",
+            ...             metadata={"source": "sharepoint:file-123"},
+            ...         )
+            ...     ],
             ... )
         """
-        prepared_documents = self._prepare_upsert_documents(
-            document_id,
+        resolved_source = self._resolve_upsert_source(
             documents,
+            source=source,
+            source_field=source_field,
+            metadata=metadata,
+        )
+        prepared_documents = self._prepare_upsert_documents(
+            resolved_source,
+            documents,
+            source_field=source_field,
             metadata=metadata,
         )
 
@@ -897,14 +970,15 @@ class VectorGraphRAG:
             show_progress=show_progress,
         )
 
-        self.delete_documents(document_id)
+        self.delete_documents_by_source(resolved_source, source_field=source_field)
         entity_id_map, relation_id_map = self._insert_incremental_graph(
             builder,
             passage_user_metadatas,
             entity_embeddings,
             relation_embeddings,
             passage_embeddings,
-            document_id=document_id,
+            source=resolved_source,
+            source_field=source_field,
             show_progress=show_progress,
         )
 
@@ -916,21 +990,39 @@ class VectorGraphRAG:
         self._retriever = None
         return self._extraction_result
 
-    def delete_documents(self, document_id: str) -> bool:
+    def upsert_documents(self, *args: Any, **kwargs: Any) -> ExtractionResult:
         """
-        Incrementally delete one source document and cascade graph references.
+        Removed incremental API.
+
+        Use upsert_documents_by_source() instead.
+        """
+        raise RuntimeError(
+            "upsert_documents(document_id=..., documents=...) was removed because "
+            "Document represents a chunk/passage in vector-graph-rag. Use "
+            "upsert_documents_by_source(documents=..., source=...) or set a stable "
+            'Document.metadata["source"] value and call upsert_documents_by_source(documents=...).'
+        )
+
+    def delete_documents_by_source(
+        self,
+        source: str,
+        source_field: str = "source",
+    ) -> bool:
+        """
+        Incrementally delete all documents that belong to one source.
 
         Args:
-            document_id: Stable source document ID previously used with
-                         upsert_documents().
+            source: Stable source value previously used with
+                    upsert_documents_by_source().
+            source_field: Metadata field used to group chunks by source.
 
         Returns:
             True when at least one passage was deleted, otherwise False.
         """
-        if not document_id:
-            raise ValueError("document_id must not be empty.")
+        source = self._normalize_source_value(source, "source")
+        self._store._validate_field_name(source_field)
 
-        passages = self._store.get_passages_by_document_id(document_id)
+        passages = self._store.get_passages_by_source(source, source_field=source_field)
         if not passages:
             return False
 
@@ -986,6 +1078,18 @@ class VectorGraphRAG:
         self._retriever = None
         return True
 
+    def delete_documents(self, *args: Any, **kwargs: Any) -> bool:
+        """
+        Removed incremental API.
+
+        Use delete_documents_by_source() instead.
+        """
+        raise RuntimeError(
+            "delete_documents(document_id) was removed because Document represents "
+            "a chunk/passage in vector-graph-rag. Use "
+            "delete_documents_by_source(source=...) instead."
+        )
+
     def add_documents_with_triplets(
         self,
         documents: List[dict],
@@ -1000,7 +1104,7 @@ class VectorGraphRAG:
             rebuild_documents_with_triplets() for full refreshes. For
             incremental updates with pre-extracted triplets, store triplets in
             each chunk's metadata["triplets"] and call
-            upsert_documents(..., extract_triplets=False).
+            upsert_documents_by_source(..., extract_triplets=False).
 
         Use this method if you already have triplets extracted,
         to avoid the LLM triplet extraction step.
@@ -1028,8 +1132,8 @@ class VectorGraphRAG:
         warnings.warn(
             "add_documents_with_triplets() is deprecated and will be removed in "
             "v1.0.0. Use rebuild_documents_with_triplets() for full refreshes, "
-            "or upsert_documents(..., extract_triplets=False) for document-level "
-            "incremental create/update.",
+            "or upsert_documents_by_source(..., extract_triplets=False) for "
+            "source-level incremental create/update.",
             DeprecationWarning,
             stacklevel=2,
         )
