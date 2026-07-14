@@ -233,7 +233,7 @@ class VectorGraphRAG:
     def _normalize_source_value(value: Any, field_name: str) -> str:
         """Validate and normalize a source metadata value."""
         if not isinstance(value, str) or not value.strip():
-            raise ValueError(f'{field_name} must be a non-empty string.')
+            raise ValueError(f"{field_name} must be a non-empty string.")
         return value.strip()
 
     @staticmethod
@@ -277,7 +277,7 @@ class VectorGraphRAG:
             if conflicting_sources:
                 conflicts = ", ".join(sorted(conflicting_sources))
                 raise ValueError(
-                    f'documents contain {source_field} values that differ from source '
+                    f"documents contain {source_field} values that differ from source "
                     f'"{explicit_source}": {conflicts}'
                 )
             return explicit_source
@@ -520,9 +520,7 @@ class VectorGraphRAG:
         )
         for passage in existing_passages:
             if passage.get(source_field) != source:
-                raise ValueError(
-                    f'Passage ID "{passage["id"]}" already belongs to another source.'
-                )
+                raise ValueError(f'Passage ID "{passage["id"]}" already belongs to another source.')
 
         if show_progress:
             logger.info("Upserting incremental graph into Milvus...")
@@ -534,6 +532,7 @@ class VectorGraphRAG:
         entity_insert_texts: List[str] = []
         entity_insert_embeddings: List[List[float]] = []
         entity_insert_metadatas: List[Dict[str, Any]] = []
+        entity_update_records: List[Dict[str, Any]] = []
 
         for index, eid in enumerate(builder.entity_ids):
             stored_id = entity_id_map[eid]
@@ -548,18 +547,29 @@ class VectorGraphRAG:
             }
             existing = existing_entities.get(entity_text_by_id[eid])
             if existing:
-                self._store._update_entity(
-                    stored_id,
-                    text=entity_text_by_id[eid],
-                    embedding=entity_embeddings[index],
-                    relation_ids=self._merge_unique(existing.get("relation_ids", []), relation_ids),
-                    passage_ids=self._merge_unique(existing.get("passage_ids", []), passage_ids),
+                entity_update_records.append(
+                    {
+                        "id": stored_id,
+                        "text": entity_text_by_id[eid],
+                        "vector": entity_embeddings[index],
+                        "relation_ids": self._merge_unique(
+                            existing.get("relation_ids", []),
+                            relation_ids,
+                        ),
+                        "passage_ids": self._merge_unique(
+                            existing.get("passage_ids", []),
+                            passage_ids,
+                        ),
+                    }
                 )
             else:
                 entity_insert_ids.append(stored_id)
                 entity_insert_texts.append(entity_text_by_id[eid])
                 entity_insert_embeddings.append(entity_embeddings[index])
                 entity_insert_metadatas.append(metadata)
+
+        if entity_update_records:
+            self._store._upsert_entity_records(entity_update_records)
 
         if entity_insert_ids:
             self._store._insert_entities(
@@ -574,6 +584,7 @@ class VectorGraphRAG:
         relation_insert_texts: List[str] = []
         relation_insert_embeddings: List[List[float]] = []
         relation_insert_metadatas: List[Dict[str, Any]] = []
+        relation_update_records: List[Dict[str, Any]] = []
 
         for index, rid in enumerate(builder.relation_ids):
             stored_id = relation_id_map[rid]
@@ -594,21 +605,30 @@ class VectorGraphRAG:
 
             existing = existing_relations.get(relation_text_by_id[rid])
             if existing:
-                self._store._update_relation(
-                    stored_id,
-                    text=relation_text_by_id[rid],
-                    embedding=relation_embeddings[index],
-                    entity_ids=entity_ids,
-                    passage_ids=self._merge_unique(existing.get("passage_ids", []), passage_ids),
-                    subject=metadata.get("subject"),
-                    predicate=metadata.get("predicate"),
-                    object_=metadata.get("object"),
-                )
+                update_record = {
+                    "id": stored_id,
+                    "text": relation_text_by_id[rid],
+                    "vector": relation_embeddings[index],
+                    "entity_ids": entity_ids,
+                    "passage_ids": self._merge_unique(
+                        existing.get("passage_ids", []),
+                        passage_ids,
+                    ),
+                }
+                for field in ["subject", "predicate", "object"]:
+                    if metadata.get(field) is not None:
+                        update_record[field] = metadata[field]
+                    elif field in existing:
+                        update_record[field] = existing[field]
+                relation_update_records.append(update_record)
             else:
                 relation_insert_ids.append(stored_id)
                 relation_insert_texts.append(relation_text_by_id[rid])
                 relation_insert_embeddings.append(relation_embeddings[index])
                 relation_insert_metadatas.append(metadata)
+
+        if relation_update_records:
+            self._store._upsert_relation_records(relation_update_records)
 
         if relation_insert_ids:
             self._store._insert_relations(
@@ -1037,6 +1057,8 @@ class VectorGraphRAG:
         )
 
         relations = self._store._get_relations_by_ids(relation_ids)
+        relation_update_records: List[Dict[str, Any]] = []
+        relation_delete_ids: List[str] = []
         deleted_relation_ids: set[str] = set()
         for relation in relations:
             relation_id = relation["id"]
@@ -1045,15 +1067,29 @@ class VectorGraphRAG:
                 removed_passage_ids,
             )
             if new_passage_ids:
-                self._store._update_relation(
-                    relation_id,
-                    passage_ids=new_passage_ids,
-                )
+                update_record = {
+                    "id": relation_id,
+                    "text": relation["text"],
+                    "vector": self._embedding_model.embed(relation["text"]),
+                    "entity_ids": relation.get("entity_ids", []),
+                    "passage_ids": new_passage_ids,
+                }
+                for field in ["subject", "predicate", "object"]:
+                    if field in relation:
+                        update_record[field] = relation[field]
+                relation_update_records.append(update_record)
             else:
-                self._store._delete_relation(relation_id)
+                relation_delete_ids.append(relation_id)
                 deleted_relation_ids.add(relation_id)
 
+        if relation_update_records:
+            self._store._upsert_relation_records(relation_update_records)
+        if relation_delete_ids:
+            self._store._delete_relations(relation_delete_ids)
+
         entities = self._store._get_entities_by_ids(entity_ids)
+        entity_update_records: List[Dict[str, Any]] = []
+        entity_delete_ids: List[str] = []
         for entity in entities:
             entity_id = entity["id"]
             new_passage_ids = self._remove_many(
@@ -1066,13 +1102,22 @@ class VectorGraphRAG:
             )
 
             if new_passage_ids or new_relation_ids:
-                self._store._update_entity(
-                    entity_id,
-                    passage_ids=new_passage_ids,
-                    relation_ids=new_relation_ids,
+                entity_update_records.append(
+                    {
+                        "id": entity_id,
+                        "text": entity["text"],
+                        "vector": self._embedding_model.embed(entity["text"]),
+                        "passage_ids": new_passage_ids,
+                        "relation_ids": new_relation_ids,
+                    }
                 )
             else:
-                self._store._delete_entity(entity_id)
+                entity_delete_ids.append(entity_id)
+
+        if entity_update_records:
+            self._store._upsert_entity_records(entity_update_records)
+        if entity_delete_ids:
+            self._store._delete_entities(entity_delete_ids)
 
         self._store.delete_passages(passage_ids)
         self._retriever = None
