@@ -287,6 +287,120 @@ def test_delete_documents_by_source_cascades_and_preserves_shared_graph_records(
         remove_temp_milvus_file(milvus_uri)
 
 
+def test_incremental_exact_text_lookups_are_batched():
+    """Batch exact entity/relation lookups instead of querying one text at a time."""
+    rag, milvus_uri = with_temp_rag("incremental_batched_lookup")
+    rag.settings.batch_size = 2
+
+    try:
+        rag._store._insert_entities(
+            ["alpha", "beta", "gamma"],
+            ids=["entity_alpha", "entity_beta", "entity_gamma"],
+            embeddings=[
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+        )
+        rag._store._insert_relations(
+            [
+                "alpha owns beta",
+                "beta owns gamma",
+                "gamma owns alpha",
+            ],
+            ids=["relation_alpha_beta", "relation_beta_gamma", "relation_gamma_alpha"],
+            embeddings=[
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+        )
+
+        with patch.object(rag._store.client, "query", wraps=rag._store.client.query) as query_spy:
+            entities = rag._store._get_entities_by_texts(
+                ["alpha", "beta", "alpha", "gamma", "missing"]
+            )
+
+        assert set(entities) == {"alpha", "beta", "gamma"}
+        assert query_spy.call_count == 2
+        assert all("text in [" in call.kwargs["filter"] for call in query_spy.call_args_list)
+
+        with patch.object(rag._store.client, "query", wraps=rag._store.client.query) as query_spy:
+            relations = rag._store._get_relations_by_texts(
+                [
+                    "alpha owns beta",
+                    "beta owns gamma",
+                    "alpha owns beta",
+                    "gamma owns alpha",
+                    "missing relation",
+                ]
+            )
+
+        assert set(relations) == {
+            "alpha owns beta",
+            "beta owns gamma",
+            "gamma owns alpha",
+        }
+        assert query_spy.call_count == 2
+        assert all("text in [" in call.kwargs["filter"] for call in query_spy.call_args_list)
+    finally:
+        remove_temp_milvus_file(milvus_uri)
+
+
+def test_upsert_documents_by_source_batches_shared_graph_metadata_updates():
+    """Reuse shared graph records without per-record ID lookups on incremental insert."""
+    rag, milvus_uri = with_temp_rag("incremental_batched_upsert")
+
+    try:
+        shared_triplet = [["Alpha", "founded", "Acme"]]
+        rag.upsert_documents_by_source(
+            [doc("Alpha founded Acme in source A.", shared_triplet)],
+            source="file_alpha",
+            extract_triplets=False,
+            show_progress=False,
+        )
+
+        with (
+            patch.object(
+                rag._store,
+                "_get_entities_by_ids",
+                wraps=rag._store._get_entities_by_ids,
+            ) as entity_lookup_spy,
+            patch.object(
+                rag._store,
+                "_get_relations_by_ids",
+                wraps=rag._store._get_relations_by_ids,
+            ) as relation_lookup_spy,
+            patch.object(rag._store.client, "upsert", wraps=rag._store.client.upsert) as upsert_spy,
+        ):
+            rag.upsert_documents_by_source(
+                [doc("Alpha founded Acme in source B.", shared_triplet)],
+                source="file_beta",
+                extract_triplets=False,
+                show_progress=False,
+            )
+
+        assert entity_lookup_spy.call_count == 0
+        assert relation_lookup_spy.call_count == 0
+
+        entity_upserts = [
+            call
+            for call in upsert_spy.call_args_list
+            if call.kwargs["collection_name"] == rag._store.entity_collection
+        ]
+        relation_upserts = [
+            call
+            for call in upsert_spy.call_args_list
+            if call.kwargs["collection_name"] == rag._store.relation_collection
+        ]
+        assert len(entity_upserts) == 1
+        assert len(entity_upserts[0].kwargs["data"]) == 2
+        assert len(relation_upserts) == 1
+        assert len(relation_upserts[0].kwargs["data"]) == 1
+    finally:
+        remove_temp_milvus_file(milvus_uri)
+
+
 def test_upsert_documents_by_source_supports_metadata_filter_query_end_to_end():
     """Use upserted source metadata to filter graph query results."""
     rag, milvus_uri = with_temp_rag("incremental_query_filter")

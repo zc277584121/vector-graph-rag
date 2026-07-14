@@ -13,7 +13,7 @@ Users should interact with passages through the Graph abstraction layer.
 import logging
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from pymilvus import DataType, MilvusClient
 from tqdm import tqdm
@@ -96,6 +96,77 @@ class MilvusStore:
                 "letters, numbers, and underscores, and it must not start with a number."
             )
         return field_name
+
+    def _batch_items(
+        self,
+        items: List[Any],
+        batch_size: Optional[int] = None,
+    ) -> Iterator[List[Any]]:
+        """Yield items in batches using the configured batch size."""
+        effective_batch_size = batch_size or self.settings.batch_size
+        for start_idx in range(0, len(items), effective_batch_size):
+            yield items[start_idx : start_idx + effective_batch_size]
+
+    @staticmethod
+    def _unique_preserve_order(values: List[str]) -> List[str]:
+        """Return unique strings without changing first-seen order."""
+        seen = set()
+        unique_values = []
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            unique_values.append(value)
+        return unique_values
+
+    def _query_by_texts(
+        self,
+        collection_name: str,
+        texts: List[str],
+        output_fields: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Query records by exact text in batches."""
+        records_by_text: Dict[str, Dict[str, Any]] = {}
+        unique_texts = self._unique_preserve_order(texts)
+        if not unique_texts:
+            return records_by_text
+
+        for batch_texts in self._batch_items(unique_texts):
+            quoted_texts = ", ".join(self._quote_string(text) for text in batch_texts)
+            results = self.client.query(
+                collection_name=collection_name,
+                filter=f"text in [{quoted_texts}]",
+                output_fields=output_fields,
+            )
+            for record in results:
+                text = record.get("text")
+                if isinstance(text, str) and text not in records_by_text:
+                    records_by_text[text] = record
+
+        return records_by_text
+
+    def _upsert_records(
+        self,
+        collection_name: str,
+        records: List[Dict[str, Any]],
+    ) -> None:
+        """Upsert records in batches using the configured batch size."""
+        if not records:
+            return
+
+        for batch_records in self._batch_items(records):
+            self.client.upsert(
+                collection_name=collection_name,
+                data=batch_records,
+            )
+
+    def _upsert_entity_records(self, records: List[Dict[str, Any]]) -> None:
+        """Upsert fully materialized entity records."""
+        self._upsert_records(self.entity_collection, records)
+
+    def _upsert_relation_records(self, records: List[Dict[str, Any]]) -> None:
+        """Upsert fully materialized relation records."""
+        self._upsert_records(self.relation_collection, records)
 
     def _create_collection(
         self,
@@ -500,16 +571,11 @@ class MilvusStore:
         Returns:
             Mapping from entity text to the first matching entity record.
         """
-        entities_by_text: Dict[str, Dict[str, Any]] = {}
-        for text in entity_texts:
-            results = self.client.query(
-                collection_name=self.entity_collection,
-                filter=f"text == {self._quote_string(text)}",
-                output_fields=["id", "text", "relation_ids", "passage_ids"],
-            )
-            if results:
-                entities_by_text[text] = results[0]
-        return entities_by_text
+        return self._query_by_texts(
+            self.entity_collection,
+            entity_texts,
+            output_fields=["id", "text", "relation_ids", "passage_ids"],
+        )
 
     def _get_relations_by_ids(
         self,
@@ -562,24 +628,19 @@ class MilvusStore:
         Returns:
             Mapping from relation text to the first matching relation record.
         """
-        relations_by_text: Dict[str, Dict[str, Any]] = {}
-        for text in relation_texts:
-            results = self.client.query(
-                collection_name=self.relation_collection,
-                filter=f"text == {self._quote_string(text)}",
-                output_fields=[
-                    "id",
-                    "text",
-                    "entity_ids",
-                    "passage_ids",
-                    "subject",
-                    "predicate",
-                    "object",
-                ],
-            )
-            if results:
-                relations_by_text[text] = results[0]
-        return relations_by_text
+        return self._query_by_texts(
+            self.relation_collection,
+            relation_texts,
+            output_fields=[
+                "id",
+                "text",
+                "entity_ids",
+                "passage_ids",
+                "subject",
+                "predicate",
+                "object",
+            ],
+        )
 
     def get_passages_by_ids(
         self,
