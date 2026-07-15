@@ -513,6 +513,23 @@ class VectorGraphRAG:
             rid: existing_relations.get(builder.relations[rid], {}).get("id", rid)
             for rid in builder.relation_ids
         }
+        current_passage_ids = set(builder.passage_ids)
+        known_relation_ids = set(relation_id_map.values())
+        suspect_existing_relation_ids = sorted(
+            {
+                relation_id
+                for entity in existing_entities.values()
+                if current_passage_ids.intersection(entity.get("passage_ids", []))
+                for relation_id in entity.get("relation_ids", [])
+                if relation_id not in known_relation_ids
+            }
+        )
+        live_suspect_relation_ids: set[str] = set()
+        if suspect_existing_relation_ids:
+            live_suspect_relation_ids = {
+                relation["id"]
+                for relation in self._store._get_relations_by_ids(suspect_existing_relation_ids)
+            }
 
         existing_passages = self._store.get_passages_by_ids(
             builder.passage_ids,
@@ -547,13 +564,21 @@ class VectorGraphRAG:
             }
             existing = existing_entities.get(entity_text_by_id[eid])
             if existing:
+                existing_relation_ids = existing.get("relation_ids", [])
+                if current_passage_ids.intersection(existing.get("passage_ids", [])):
+                    existing_relation_ids = [
+                        relation_id
+                        for relation_id in existing_relation_ids
+                        if relation_id in known_relation_ids
+                        or relation_id in live_suspect_relation_ids
+                    ]
                 entity_update_records.append(
                     {
                         "id": stored_id,
                         "text": entity_text_by_id[eid],
                         "vector": entity_embeddings[index],
                         "relation_ids": self._merge_unique(
-                            existing.get("relation_ids", []),
+                            existing_relation_ids,
                             relation_ids,
                         ),
                         "passage_ids": self._merge_unique(
@@ -935,6 +960,8 @@ class VectorGraphRAG:
         In this project, a LangChain Document is a passage/chunk. This method
         uses a stable source metadata value to replace all chunks that belong to
         one source object, such as a file, URL, message, or business record.
+        The write is not transactionally atomic, but rerunning the same source
+        upsert after a failure converges the source to the requested state.
 
         Args:
             documents: Parsed chunks/passages for one source.
@@ -1031,6 +1058,9 @@ class VectorGraphRAG:
         """
         Incrementally delete all documents that belong to one source.
 
+        The write is not transactionally atomic, but rerunning the same source
+        delete after a failure finishes the source-level cascade.
+
         Args:
             source: Stable source value previously used with
                     upsert_documents_by_source().
@@ -1057,9 +1087,10 @@ class VectorGraphRAG:
         )
 
         relations = self._store._get_relations_by_ids(relation_ids)
+        existing_relation_ids = {relation["id"] for relation in relations}
         relation_update_records: List[Dict[str, Any]] = []
         relation_delete_ids: List[str] = []
-        deleted_relation_ids: set[str] = set()
+        deleted_relation_ids: set[str] = set(relation_ids) - existing_relation_ids
         for relation in relations:
             relation_id = relation["id"]
             new_passage_ids = self._remove_many(

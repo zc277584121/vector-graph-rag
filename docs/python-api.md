@@ -403,6 +403,8 @@ def upsert_documents_by_source(
 
 If the source does not exist, the method inserts a new source. If it already exists, the method deletes the previous chunks for that source, updates graph references, and inserts the new chunks without rebuilding unrelated sources.
 
+Source-level writes are not transactionally atomic. If an upsert fails during the multi-step cascade, rerun the same `upsert_documents_by_source()` call for the same source to converge the source back to the requested state. Queries may observe intermediate state until the retry succeeds.
+
 The method accepts exactly one source per call. If `source` is not provided and the documents contain multiple `metadata[source_field]` values, it raises `ValueError`.
 
 ```python
@@ -446,6 +448,8 @@ def delete_documents_by_source(
 **Returns:** `True` if at least one passage was deleted; otherwise `False`.
 
 Shared entities and relations are preserved when other sources still reference them. Orphaned relations and entities are removed.
+
+Source-level deletes are retryable. If a delete fails after partially cleaning graph records, rerun `delete_documents_by_source()` with the same `source` and `source_field` to finish the cascade.
 
 ```python
 deleted = rag.delete_documents_by_source("sharepoint:file-123")

@@ -109,6 +109,9 @@ Use `upsert_documents_by_source()` when a source file, message, or page is
 created or modified. In Vector Graph RAG, a `Document` is a passage/chunk; the
 source object is identified by `metadata["source"]` or the explicit `source`
 argument. The method replaces only that source's chunks and graph references.
+Source-level writes are not transactionally atomic, but the same upsert/delete
+operation can be retried after an interruption to converge the source back to a
+consistent state.
 
 ```python
 from langchain_core.documents import Document
