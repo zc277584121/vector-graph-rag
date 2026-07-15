@@ -287,6 +287,236 @@ def test_delete_documents_by_source_cascades_and_preserves_shared_graph_records(
         remove_temp_milvus_file(milvus_uri)
 
 
+def test_delete_documents_by_source_retry_cleans_relations_deleted_before_entity_cleanup():
+    """Retry a source delete after relation deletion succeeded but entity cleanup failed."""
+    rag, milvus_uri = with_temp_rag("incremental_retry_delete_missing_relation")
+
+    try:
+        rag.upsert_documents_by_source(
+            [
+                doc(
+                    "Alpha owns the blue database.",
+                    [["Alpha", "owns", "blue database"]],
+                )
+            ],
+            source="file_alpha",
+            extract_triplets=False,
+            show_progress=False,
+        )
+        rag.upsert_documents_by_source(
+            [
+                doc(
+                    "Beta owns the red database.",
+                    [["Beta", "owns", "red database"]],
+                )
+            ],
+            source="file_beta",
+            extract_triplets=False,
+            show_progress=False,
+        )
+
+        alpha_relation = rag._store._get_relations_by_texts(["alpha owns blue database"])[
+            "alpha owns blue database"
+        ]
+        original_delete_relations = rag._store._delete_relations
+        failed_once = False
+
+        def fail_after_relation_delete(relation_ids: list[str]) -> int:
+            nonlocal failed_once
+            deleted_count = original_delete_relations(relation_ids)
+            if not failed_once:
+                failed_once = True
+                raise RuntimeError("simulated relation delete failure")
+            return deleted_count
+
+        with patch.object(
+            rag._store,
+            "_delete_relations",
+            side_effect=fail_after_relation_delete,
+        ):
+            with pytest.raises(RuntimeError, match="simulated relation delete failure"):
+                rag.delete_documents_by_source("file_alpha")
+
+        assert rag._store._get_relations_by_texts(["alpha owns blue database"]) == {}
+        alpha_entity = rag._store._get_entities_by_texts(["alpha"])["alpha"]
+        assert alpha_relation["id"] in alpha_entity["relation_ids"]
+
+        assert rag.delete_documents_by_source("file_alpha") is True
+
+        assert rag._store.get_passages_by_source("file_alpha") == []
+        assert rag._store.get_passages_by_source("file_beta")
+        assert rag._store._get_relations_by_texts(["alpha owns blue database"]) == {}
+        assert rag._store._get_entities_by_texts(["alpha", "blue database"]) == {}
+        assert set(rag._store._get_relations_by_texts(["beta owns red database"])) == {
+            "beta owns red database"
+        }
+    finally:
+        remove_temp_milvus_file(milvus_uri)
+
+
+def test_upsert_documents_by_source_retry_prunes_relation_ids_missing_after_partial_insert():
+    """Retry a source upsert after entities were inserted before relation insert failed."""
+    rag, milvus_uri = with_temp_rag("incremental_retry_upsert_entity_only")
+
+    try:
+        rag.upsert_documents_by_source(
+            [
+                doc(
+                    "Beta owns the red database.",
+                    [["Beta", "owns", "red database"]],
+                )
+            ],
+            source="file_beta",
+            extract_triplets=False,
+            show_progress=False,
+        )
+
+        original_insert_entities = rag._store._insert_entities
+        failed_once = False
+
+        def fail_after_entity_insert(*args, **kwargs):
+            nonlocal failed_once
+            inserted_ids = original_insert_entities(*args, **kwargs)
+            if not failed_once:
+                failed_once = True
+                raise RuntimeError("simulated entity insert failure")
+            return inserted_ids
+
+        alpha_doc = doc(
+            "Alpha owns the blue database.",
+            [["Alpha", "owns", "blue database"]],
+        )
+
+        with patch.object(
+            rag._store,
+            "_insert_entities",
+            side_effect=fail_after_entity_insert,
+        ):
+            with pytest.raises(RuntimeError, match="simulated entity insert failure"):
+                rag.upsert_documents_by_source(
+                    [alpha_doc],
+                    source="file_alpha",
+                    extract_triplets=False,
+                    show_progress=False,
+                )
+
+        assert rag._store.get_passages_by_source("file_alpha") == []
+        alpha_entity = rag._store._get_entities_by_texts(["alpha"])["alpha"]
+        stale_relation_ids = alpha_entity["relation_ids"]
+        assert stale_relation_ids
+        assert rag._store._get_relations_by_ids(stale_relation_ids) == []
+
+        rag.upsert_documents_by_source(
+            [
+                doc(
+                    "Alpha owns the blue database.",
+                    [["Alpha", "owns", "blue database"]],
+                )
+            ],
+            source="file_alpha",
+            extract_triplets=False,
+            show_progress=False,
+        )
+
+        alpha_relation = rag._store._get_relations_by_texts(["alpha owns blue database"])[
+            "alpha owns blue database"
+        ]
+        alpha_entity = rag._store._get_entities_by_texts(["alpha"])["alpha"]
+
+        assert set(alpha_entity["relation_ids"]) == {alpha_relation["id"]}
+        assert rag._store.get_passages_by_source("file_alpha")
+        assert rag._store.get_passages_by_source("file_beta")
+    finally:
+        remove_temp_milvus_file(milvus_uri)
+
+
+def test_upsert_documents_by_source_retry_replaces_partial_passage_insert():
+    """Retry a source upsert after the new passage was inserted before failure."""
+    rag, milvus_uri = with_temp_rag("incremental_retry_upsert_passage_insert")
+
+    try:
+        rag.upsert_documents_by_source(
+            [
+                doc(
+                    "Alpha owns the blue database.",
+                    [["Alpha", "owns", "blue database"]],
+                )
+            ],
+            source="file_alpha",
+            extract_triplets=False,
+            show_progress=False,
+        )
+        rag.upsert_documents_by_source(
+            [
+                doc(
+                    "Beta owns the red database.",
+                    [["Beta", "owns", "red database"]],
+                )
+            ],
+            source="file_beta",
+            extract_triplets=False,
+            show_progress=False,
+        )
+
+        original_insert_passages = rag._store.insert_passages
+        failed_once = False
+
+        def fail_after_passage_insert(*args, **kwargs):
+            nonlocal failed_once
+            inserted_ids = original_insert_passages(*args, **kwargs)
+            if not failed_once:
+                failed_once = True
+                raise RuntimeError("simulated passage insert failure")
+            return inserted_ids
+
+        replacement_doc = doc(
+            "Alpha owns the green database.",
+            [["Alpha", "owns", "green database"]],
+        )
+
+        with patch.object(
+            rag._store,
+            "insert_passages",
+            side_effect=fail_after_passage_insert,
+        ):
+            with pytest.raises(RuntimeError, match="simulated passage insert failure"):
+                rag.upsert_documents_by_source(
+                    [replacement_doc],
+                    source="file_alpha",
+                    extract_triplets=False,
+                    show_progress=False,
+                )
+
+        assert [p["text"] for p in rag._store.get_passages_by_source("file_alpha")] == [
+            "Alpha owns the green database."
+        ]
+
+        rag.upsert_documents_by_source(
+            [
+                doc(
+                    "Alpha owns the green database.",
+                    [["Alpha", "owns", "green database"]],
+                )
+            ],
+            source="file_alpha",
+            extract_triplets=False,
+            show_progress=False,
+        )
+
+        assert [p["text"] for p in rag._store.get_passages_by_source("file_alpha")] == [
+            "Alpha owns the green database."
+        ]
+        assert [p["text"] for p in rag._store.get_passages_by_source("file_beta")] == [
+            "Beta owns the red database."
+        ]
+        assert rag._store._get_relations_by_texts(["alpha owns blue database"]) == {}
+        assert set(rag._store._get_relations_by_texts(["alpha owns green database"])) == {
+            "alpha owns green database"
+        }
+    finally:
+        remove_temp_milvus_file(milvus_uri)
+
+
 def test_incremental_exact_text_lookups_are_batched():
     """Batch exact entity/relation lookups instead of querying one text at a time."""
     rag, milvus_uri = with_temp_rag("incremental_batched_lookup")

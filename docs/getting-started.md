@@ -212,7 +212,7 @@ rag.delete_documents_by_source("sharepoint:file-123")
     `upsert_documents(document_id=...)` and `delete_documents(document_id)` were removed because `Document` means passage/chunk in this project. Use `upsert_documents_by_source()` and `delete_documents_by_source()` with a stable `metadata["source"]` value instead.
 
 !!! note "Consistency model"
-    Incremental updates perform a source-level cascade across passages, entities, and relations. They are not transactionally atomic, so avoid interrupting or concurrently mutating the same collection prefix during an update.
+    Incremental updates perform a source-level cascade across passages, entities, and relations. They are not transactionally atomic, and queries may observe intermediate state if a write is interrupted. If an upsert or delete fails, rerun the same operation for the same source to converge the source back to a consistent state. Avoid concurrently mutating the same collection prefix during an update.
 
 ## Querying
 
