@@ -377,7 +377,7 @@ Optional `metadata` is stored on the passage and can be used by query filters.
 
 #### `upsert_documents_by_source`
 
-Incrementally create or replace all chunks that belong to one source. A source can be a file, page, message, SharePoint item, business record, or any other stable external object. In Vector Graph RAG, a LangChain `Document` is a passage/chunk; source ownership is represented by `metadata["source"]` by default.
+Incrementally create or replace all chunks that belong to one source. A source can be a file, page, message, database row, business record, or any other stable external object. In Vector Graph RAG, a LangChain `Document` is a passage/chunk; source ownership is represented by `metadata["source"]` by default.
 
 ```python
 def upsert_documents_by_source(
@@ -407,6 +407,9 @@ Source-level writes are not transactionally atomic. If an upsert fails during th
 
 The method accepts exactly one source per call. If `source` is not provided and the documents contain multiple `metadata[source_field]` values, it raises `ValueError`.
 
+For end-to-end parser and loader examples, see
+[Incremental Updates](incremental-updates.md).
+
 ```python
 from langchain_core.documents import Document
 
@@ -414,7 +417,7 @@ chunks = [
     Document(
         page_content="Alpha owns the blue database.",
         metadata={
-            "source": "sharepoint:file-123",
+            "source": "file:file-123",
             "triplets": [["Alpha", "owns", "blue database"]],
         },
     )
@@ -452,7 +455,7 @@ Shared entities and relations are preserved when other sources still reference t
 Source-level deletes are retryable. If a delete fails after partially cleaning graph records, rerun `delete_documents_by_source()` with the same `source` and `source_field` to finish the cascade.
 
 ```python
-deleted = rag.delete_documents_by_source("sharepoint:file-123")
+deleted = rag.delete_documents_by_source("file:file-123")
 ```
 
 !!! warning "v0.2.0 migration"

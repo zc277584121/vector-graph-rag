@@ -39,6 +39,7 @@ extra_css:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Incremental Updates: incremental-updates.md
   - Architecture:
     - How It Works: how-it-works.md
     - Design Philosophy: design-philosophy.md
