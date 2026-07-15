@@ -186,6 +186,11 @@ rag.rebuild_documents(result.documents, extract_triplets=True)
 
 Use `upsert_documents_by_source()` when a source file, page, or message is created or modified. In Vector Graph RAG, a `Document` is a passage/chunk, and `metadata["source"]` identifies the source object whose chunks should be replaced.
 
+For parser and loader workflows, attach the same stable source value to every
+chunk produced from one file, page, or message. See
+[Incremental Updates](incremental-updates.md) for the full source-level CUD and
+retry pattern.
+
 ```python
 from langchain_core.documents import Document
 
@@ -194,7 +199,7 @@ rag.upsert_documents_by_source(
         Document(
             page_content="Einstein developed relativity at Princeton.",
             metadata={
-                "source": "sharepoint:file-123",
+                "source": "file:file-123",
                 "triplets": [
                     ["Einstein", "developed", "relativity"],
                     ["Einstein", "worked at", "Princeton"],
@@ -205,7 +210,7 @@ rag.upsert_documents_by_source(
     extract_triplets=False,
 )
 
-rag.delete_documents_by_source("sharepoint:file-123")
+rag.delete_documents_by_source("file:file-123")
 ```
 
 !!! warning "v0.2.0 migration"
