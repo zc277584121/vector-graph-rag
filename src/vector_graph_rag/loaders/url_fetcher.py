@@ -10,7 +10,7 @@ import requests
 import trafilatura
 from langchain_core.documents import Document
 
-from .converter import ConversionResult, DocumentConverter
+from .converter import ConversionResult, DocumentConverter, DocumentConverterProtocol
 
 
 class URLFetcher:
@@ -31,11 +31,12 @@ class URLFetcher:
         timeout: float = 30.0,
         include_links: bool = True,
         include_images: bool = False,  # Set to False for text-only focus
+        converter: DocumentConverterProtocol | None = None,
     ):
         self.timeout = timeout
         self.include_links = include_links
         self.include_images = include_images
-        self.converter = DocumentConverter()  # For PDF URLs
+        self.converter = converter or DocumentConverter()  # For PDF URLs
         self.headers = {
             "User-Agent": self.USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

@@ -180,7 +180,23 @@ rag.rebuild_documents(result.documents, extract_triplets=True)
 ```
 
 !!! warning "Loader dependencies"
-    Install with `pip install "vector-graph-rag[loaders]"` to enable URL fetching and document conversion.
+    Install with `uv add "vector-graph-rag[loaders]"` to enable URL fetching and document conversion.
+
+To use a different local parser, pass a converter into `DocumentImporter`:
+
+```python
+from vector_graph_rag.loaders import DocumentImporter, MinerUConverter
+
+importer = DocumentImporter(
+    converter=MinerUConverter(
+        timeout=900,
+        extra_args=["--backend", "pipeline"],
+    ),
+    chunk_size=1000,
+    chunk_overlap=200,
+)
+result = importer.import_sources(["/path/to/document.pdf"])
+```
 
 ### Incremental Updates
 
