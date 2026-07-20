@@ -185,18 +185,17 @@ rag.rebuild_documents(result.documents, extract_triplets=True)
 To use a different local parser, pass a converter into `DocumentImporter`:
 
 ```python
-from vector_graph_rag.loaders import DocumentImporter, MinerUConverter
+from vector_graph_rag.loaders import DoclingConverter, DocumentImporter
 
 importer = DocumentImporter(
-    converter=MinerUConverter(
-        timeout=900,
-        extra_args=["--backend", "pipeline"],
-    ),
+    converter=DoclingConverter(),
     chunk_size=1000,
     chunk_overlap=200,
 )
 result = importer.import_sources(["/path/to/document.pdf"])
 ```
+
+Install Docling support with `uv add "vector-graph-rag[docling]"`.
 
 ### Incremental Updates
 
