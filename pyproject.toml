@@ -85,6 +85,11 @@ loaders = [
     "trafilatura>=2.0.0",
     "lxml_html_clean",  # Required by trafilatura/justext
 ]
+docling = [
+    "trafilatura>=2.0.0",
+    "lxml_html_clean",  # Required by trafilatura/justext
+    "docling>=2.0.0",
+]
 mineru = [
     "markitdown[docx,pdf]>=0.1.4",
     "trafilatura>=2.0.0",

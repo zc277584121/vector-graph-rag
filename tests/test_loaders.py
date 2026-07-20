@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 from langchain_core.documents import Document
 
-from vector_graph_rag.loaders import ConversionResult, DocumentImporter, MinerUConverter, URLFetcher
+from vector_graph_rag.loaders import (
+    ConversionResult,
+    DoclingConverter,
+    DocumentImporter,
+    MinerUConverter,
+    URLFetcher,
+)
+from vector_graph_rag.loaders import docling as docling_module
 from vector_graph_rag.loaders import mineru as mineru_module
 from vector_graph_rag.loaders import url_fetcher as url_fetcher_module
 
@@ -39,6 +46,40 @@ class FakeConverter:
             documents.extend(result.documents)
             errors.extend(result.errors)
         return ConversionResult(documents=documents, errors=errors)
+
+
+class FakeDoclingDocument:
+    """Simple Docling document stand-in for converter tests."""
+
+    def __init__(self, markdown: str):
+        self.markdown = markdown
+        self.export_calls: list[dict] = []
+
+    def export_to_markdown(self, **kwargs):
+        self.export_calls.append(kwargs)
+        return self.markdown
+
+
+class FakeDoclingResult:
+    """Simple Docling conversion result stand-in."""
+
+    def __init__(self, document):
+        self.document = document
+
+
+class FakeDoclingConverter:
+    """Simple Docling converter stand-in."""
+
+    def __init__(self, document=None, error: Exception | None = None):
+        self.document = document
+        self.error = error
+        self.sources: list[str] = []
+
+    def convert(self, source: str):
+        self.sources.append(source)
+        if self.error:
+            raise self.error
+        return FakeDoclingResult(self.document)
 
 
 def test_document_importer_uses_injected_converter(tmp_path: Path):
@@ -115,6 +156,104 @@ def test_url_fetcher_reuses_injected_converter_for_pdf_urls(
     assert result.documents[0].metadata["source"] == "https://example.com/manual.pdf"
     assert result.documents[0].metadata["source_type"] == "pdf_url"
     assert len(converter.sources) == 1
+
+
+def test_docling_converter_requires_dependency(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(docling_module, "HAS_DOCLING", False)
+    monkeypatch.setattr(docling_module, "DoclingDocumentConverter", None)
+
+    with pytest.raises(ImportError, match="docling"):
+        DoclingConverter()
+
+
+def test_docling_converter_converts_markdown_output(tmp_path: Path):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"pdf bytes")
+    fake_document = FakeDoclingDocument("# Report\n\nParsed body")
+    fake_converter = FakeDoclingConverter(document=fake_document)
+
+    converter = DoclingConverter(
+        converter=fake_converter,
+        export_kwargs={"image_placeholder": "<image>"},
+    )
+    result = converter.convert(str(source))
+
+    assert result.errors == []
+    assert len(result.documents) == 1
+    assert result.documents[0].page_content == "# Report\n\nParsed body"
+    assert result.documents[0].metadata == {
+        "source": str(source),
+        "source_type": "pdf",
+        "parser": "docling",
+    }
+    assert fake_converter.sources == [str(source)]
+    assert fake_document.export_calls == [{"image_placeholder": "<image>"}]
+
+
+def test_docling_converter_returns_error_when_no_document_is_found(tmp_path: Path):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"pdf bytes")
+    converter = DoclingConverter(converter=FakeDoclingConverter(document=None))
+
+    result = converter.convert(str(source))
+
+    assert result.documents == []
+    assert result.errors == [f"Docling completed but no document output was found for {source}"]
+
+
+def test_docling_converter_returns_error_when_output_is_empty(tmp_path: Path):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"pdf bytes")
+    converter = DoclingConverter(converter=FakeDoclingConverter(document=FakeDoclingDocument(" ")))
+
+    result = converter.convert(str(source))
+
+    assert result.documents == []
+    assert result.errors == [f"Docling produced an empty Markdown document for {source}"]
+
+
+def test_docling_converter_handles_missing_and_unsupported_files(tmp_path: Path):
+    converter = DoclingConverter(converter=FakeDoclingConverter())
+
+    missing_result = converter.convert(str(tmp_path / "missing.pdf"))
+    assert missing_result.documents == []
+    assert missing_result.errors == [f"File not found: {tmp_path / 'missing.pdf'}"]
+
+    unsupported = tmp_path / "notes.txt"
+    unsupported.write_text("hello", encoding="utf-8")
+    unsupported_result = converter.convert(str(unsupported))
+    assert unsupported_result.documents == []
+    assert unsupported_result.errors == ["Unsupported file type for Docling: .txt"]
+
+
+def test_docling_converter_convert_batch_aggregates_results(tmp_path: Path):
+    first = tmp_path / "first.pdf"
+    second = tmp_path / "second.pdf"
+    missing = tmp_path / "missing.pdf"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    class BatchDoclingConverter:
+        def convert(self, source: str):
+            source_path = Path(source)
+            return FakeDoclingResult(FakeDoclingDocument(f"# {source_path.stem}"))
+
+    converter = DoclingConverter(converter=BatchDoclingConverter())
+    result = converter.convert_batch([str(first), str(missing), str(second)])
+
+    assert [doc.page_content for doc in result.documents] == ["# first", "# second"]
+    assert result.errors == [f"File not found: {missing}"]
+
+
+def test_docling_converter_returns_error_when_conversion_fails(tmp_path: Path):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"pdf bytes")
+    converter = DoclingConverter(converter=FakeDoclingConverter(error=RuntimeError("parse failed")))
+
+    result = converter.convert(str(source))
+
+    assert result.documents == []
+    assert result.errors == [f"Failed to convert {source} with Docling: parse failed"]
 
 
 def test_mineru_converter_requires_cli(monkeypatch: pytest.MonkeyPatch):

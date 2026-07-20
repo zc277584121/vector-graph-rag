@@ -744,6 +744,32 @@ importer = DocumentImporter(
 Additional local formats can be enabled by passing a converter with a
 `supported_extensions` set and a `convert(source)` method.
 
+### DoclingConverter
+
+`DoclingConverter` adapts Docling's Python API as a local-file converter. It
+exports Docling's parsed document to Markdown and returns standard LangChain
+`Document` objects.
+
+```bash
+uv add "vector-graph-rag[docling]"
+```
+
+```python
+from vector_graph_rag.loaders import DoclingConverter, DocumentImporter
+
+importer = DocumentImporter(
+    converter=DoclingConverter(),
+    chunk_size=1000,
+    chunk_overlap=200,
+)
+
+result = importer.import_sources(["/path/to/report.pdf"])
+```
+
+Docling's PDF pipeline may download parser models on first use. In offline or
+restricted environments, pre-download Docling's models and pass a preconfigured
+Docling `DocumentConverter` or `converter_kwargs` with Docling `format_options`.
+
 ### MinerUConverter
 
 `MinerUConverter` adapts the MinerU CLI as a local-file converter. It reads the

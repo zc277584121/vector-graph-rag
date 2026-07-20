@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 from .chunker import TextChunker
 from .converter import ConversionResult, DocumentConverter, DocumentConverterProtocol
+from .docling import DoclingConverter
 from .mineru import MinerUConverter
 from .url_fetcher import URLFetcher
 
@@ -160,6 +161,7 @@ __all__ = [
     "DocumentImporter",
     "DocumentConverter",
     "DocumentConverterProtocol",
+    "DoclingConverter",
     "MinerUConverter",
     "URLFetcher",
     "TextChunker",
