@@ -719,6 +719,7 @@ importer = DocumentImporter(
     chunk_documents=True,    # Whether to split documents into chunks
     chunk_size=1000,         # Maximum characters per chunk
     chunk_overlap=200,       # Character overlap between consecutive chunks
+    converter=None,          # Optional custom local-file converter
 )
 ```
 
@@ -727,6 +728,7 @@ importer = DocumentImporter(
 | `chunk_documents` | `bool` | `True` | If `True`, loaded documents are split into chunks. |
 | `chunk_size` | `int` | `1000` | Maximum number of characters per chunk. |
 | `chunk_overlap` | `int` | `200` | Number of overlapping characters between adjacent chunks. |
+| `converter` | `Optional[DocumentConverterProtocol]` | `None` | Local-file converter. Defaults to MarkItDown through `DocumentConverter`. |
 
 ### Supported formats
 
@@ -738,6 +740,46 @@ importer = DocumentImporter(
 | Markdown | `.md` |
 | HTML | `.html`, `.htm` |
 | URLs | `http://...`, `https://...` |
+
+Additional local formats can be enabled by passing a converter with a
+`supported_extensions` set and a `convert(source)` method.
+
+### MinerUConverter
+
+`MinerUConverter` adapts the MinerU CLI as a local-file converter. It reads the
+Markdown output produced by MinerU and returns standard LangChain `Document`
+objects, so the rest of the ingestion flow stays the same.
+
+```bash
+uv add "vector-graph-rag[mineru]"
+```
+
+```python
+from vector_graph_rag.loaders import DocumentImporter, MinerUConverter
+
+importer = DocumentImporter(
+    converter=MinerUConverter(
+        timeout=900,
+        extra_args=["--backend", "pipeline"],
+    ),
+    chunk_size=1000,
+    chunk_overlap=200,
+)
+
+result = importer.import_sources(["/path/to/report.pdf"])
+```
+
+Follow MinerU's setup guide for any parser models or runtime backends required
+by your environment. The first PDF parse may download backend models; for
+production or CI environments, pre-download the models or configure a longer
+converter timeout.
+
+When used with incremental ingestion, keep one stable source value per parsed
+file or record:
+
+```python
+rag.upsert_documents_by_source(result.documents)
+```
 
 ### Methods
 

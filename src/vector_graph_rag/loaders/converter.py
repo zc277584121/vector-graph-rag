@@ -1,13 +1,12 @@
 """
-Document converter using Microsoft MarkItDown.
-Supports text documents only: PDF, DOCX
+Document converters for local files.
 """
 
 from pathlib import Path
-from typing import List
+from typing import List, Protocol
 
 from langchain_core.documents import Document
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 try:
     from markitdown import MarkItDown
@@ -20,11 +19,24 @@ except ImportError:
 class ConversionResult(BaseModel):
     """Result of document conversion."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     documents: List[Document]
     errors: List[str] = []
 
-    class Config:
-        arbitrary_types_allowed = True
+
+class DocumentConverterProtocol(Protocol):
+    """Protocol for pluggable document converters."""
+
+    supported_extensions: set[str]
+
+    def convert(self, source: str) -> ConversionResult:
+        """Convert one source file into one or more documents."""
+        ...
+
+    def convert_batch(self, sources: List[str]) -> ConversionResult:
+        """Convert multiple source files."""
+        ...
 
 
 class DocumentConverter:
@@ -36,11 +48,12 @@ class DocumentConverter:
     - DOCX (full document structure)
     """
 
+    supported_extensions = {".pdf", ".docx", ".doc"}
+
     def __init__(self):
         if not HAS_MARKITDOWN:
             raise ImportError(
-                "markitdown is not installed. "
-                "Install with: uv add 'markitdown[pdf,docx]' --optional loaders"
+                "markitdown is not installed. Install with: uv add 'vector-graph-rag[loaders]'"
             )
 
         self.md = MarkItDown(enable_plugins=False)
