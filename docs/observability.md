@@ -34,6 +34,81 @@ trace.set_tracer_provider(provider)
 
 You can replace `ConsoleSpanExporter` with any exporter or distribution supported by your deployment. For managed observability platforms, configure the platform's OpenTelemetry package in the host application; Vector Graph RAG does not add platform-specific dependencies.
 
+### Azure Application Insights
+
+To export spans to Azure Application Insights, configure Azure Monitor OpenTelemetry in the host application:
+
+```bash
+uv add "vector-graph-rag[observability]"
+uv add azure-monitor-opentelemetry
+```
+
+Set the connection string for your Application Insights resource:
+
+```bash
+export APPLICATIONINSIGHTS_CONNECTION_STRING="InstrumentationKey=...;IngestionEndpoint=..."
+export OPENAI_API_KEY="sk-..."
+```
+
+Call `configure_azure_monitor()` before running Vector Graph RAG work:
+
+```python
+from azure.monitor.opentelemetry import configure_azure_monitor
+from langchain_core.documents import Document
+
+from vector_graph_rag import VectorGraphRAG, observability_context
+
+configure_azure_monitor()
+
+rag = VectorGraphRAG(
+    collection_prefix="demo",
+    embedding_provider="openai",
+    embedding_model="text-embedding-3-small",
+)
+
+chunks = [
+    Document(
+        page_content="Alpha owns the blue database.",
+        metadata={
+            "source": "file-123",
+            "triplets": [["Alpha", "owns", "blue database"]],
+        },
+    )
+]
+
+with observability_context(
+    request_id="req-123",
+    tenant_id="tenant-a",
+    graph_name="demo",
+    source="file-123",
+    attributes={"app.import_job_id": "job-456"},
+):
+    rag.upsert_documents_by_source(
+        chunks,
+        source="file-123",
+        extract_triplets=False,
+    )
+
+with observability_context(
+    request_id="req-124",
+    tenant_id="tenant-a",
+    graph_name="demo",
+):
+    result = rag.query("What does Alpha own?", use_reranking=False)
+    print(result.answer)
+```
+
+For the packaged REST API, configure Azure Monitor before creating the FastAPI app:
+
+```python
+from azure.monitor.opentelemetry import configure_azure_monitor
+
+from vector_graph_rag.api.app import create_app
+
+configure_azure_monitor()
+app = create_app()
+```
+
 ## Add Request Context
 
 Use `observability_context()` to attach safe request-level attributes to all spans created inside a call chain:
