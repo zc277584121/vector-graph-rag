@@ -32,6 +32,12 @@
     pip install "vector-graph-rag[all]"
     ```
 
+=== "With observability"
+
+    ```bash
+    pip install "vector-graph-rag[observability]"
+    ```
+
 !!! note "Prerequisites"
     - Python 3.9+
     - An OpenAI API key (set `OPENAI_API_KEY` environment variable)
@@ -233,6 +239,26 @@ rag.delete_documents_by_source("file:file-123")
 
 !!! note "Consistency model"
     Incremental updates perform a source-level cascade across passages, entities, and relations. They are not transactionally atomic, and queries may observe intermediate state if a write is interrupted. If an upsert or delete fails, rerun the same operation for the same source to converge the source back to a consistent state. Avoid concurrently mutating the same collection prefix during an update.
+
+## Observability
+
+Install `vector-graph-rag[observability]` to enable OpenTelemetry trace instrumentation. The library creates spans for ingestion, loading, embeddings, Milvus operations, retrieval, and generation, while your application configures the OpenTelemetry SDK and exporter.
+
+```python
+from vector_graph_rag import VectorGraphRAG, observability_context
+
+rag = VectorGraphRAG(collection_prefix="my_project")
+
+with observability_context(
+    request_id="req-123",
+    tenant_id="tenant-a",
+    graph_name="my_project",
+    source="file-123",
+):
+    rag.upsert_documents_by_source(chunks, source="file-123")
+```
+
+See [Observability](observability.md) for setup, span coverage, and data-safety notes.
 
 ## Querying
 

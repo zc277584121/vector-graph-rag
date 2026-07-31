@@ -65,6 +65,17 @@ uv add "vector-graph-rag[all]"
 
 </details>
 
+<details>
+<summary><b>With OpenTelemetry tracing</b></summary>
+
+```bash
+pip install "vector-graph-rag[observability]"
+# or
+uv add "vector-graph-rag[observability]"
+```
+
+</details>
+
 ## 🚀 Quick Start
 
 ```python
@@ -145,6 +156,34 @@ rag.delete_documents_by_source("file:file-123")
 The legacy `add_*` ingestion helpers rebuild the full knowledge base and are planned
 for removal in v1.0.0. For explicit full refreshes, use `rebuild_texts()`,
 `rebuild_documents()`, or `rebuild_documents_with_triplets()`.
+
+</details>
+
+<details>
+<summary>📈 <b>OpenTelemetry tracing</b> — click to expand</summary>
+
+Vector Graph RAG can emit OpenTelemetry spans for ingestion, loaders,
+embeddings, Milvus operations, retrieval, and generation. Configure the
+OpenTelemetry SDK/exporter in your application, then attach request context
+around RAG calls:
+
+```python
+from vector_graph_rag import VectorGraphRAG, observability_context
+
+rag = VectorGraphRAG(collection_prefix="my_project")
+
+with observability_context(
+    request_id="req-123",
+    tenant_id="tenant-a",
+    graph_name="my_project",
+    source="file-123",
+):
+    rag.upsert_documents_by_source(chunks, source="file-123")
+```
+
+The built-in spans avoid document text, prompts, query text, generated answers,
+filters, and full URLs by default. See the
+[Observability guide](docs/observability.md) for setup details.
 
 </details>
 

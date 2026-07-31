@@ -15,6 +15,8 @@ The Vector Graph RAG library exposes a small, focused surface area:
 | [`QueryResult`](#queryresult) | Structured output from queries |
 | [`ExtractionResult`](#extractionresult) | Structured output from document ingestion |
 | [`DocumentImporter`](#documentimporter) | Load and chunk files (PDF, DOCX, TXT, MD, HTML, URLs) |
+| [`observability_context()`](#observability_context) | Attach request, tenant, graph, and source context to OpenTelemetry spans |
+| [`start_span()`](#start_span) | Create custom spans that share the active Vector Graph RAG context |
 | [`create_rag()`](#create_rag) | Convenience factory for quick setup |
 
 ---
@@ -168,6 +170,69 @@ rag = VectorGraphRAG(
 ```
 
 Install optional provider dependencies as needed: `hf`, `google`, `voyage`, `jina`, `mistral`, `ollama`, `local`, or `onnx`.
+
+### Observability Helpers
+
+Install `vector-graph-rag[observability]` to emit OpenTelemetry spans. The library uses the OpenTelemetry API only; configure the SDK and exporter in your application.
+
+#### `observability_context`
+
+Attach low-sensitivity context attributes to all spans created inside the block.
+
+```python
+from vector_graph_rag import VectorGraphRAG, observability_context
+
+rag = VectorGraphRAG(collection_prefix="finance")
+
+with observability_context(
+    request_id="req-123",
+    tenant_id="tenant-a",
+    graph_name="finance",
+    source="file-123",
+    attributes={"app.import_job_id": "job-456"},
+):
+    rag.upsert_documents_by_source(chunks, source="file-123")
+```
+
+```python
+def observability_context(
+    request_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    graph_name: Optional[str] = None,
+    source: Optional[str] = None,
+    attributes: Optional[Mapping[str, Any]] = None,
+) -> Iterator[None]
+```
+
+| Parameter | Description |
+|---|---|
+| `request_id` | Request or correlation ID from the host application. |
+| `tenant_id` | Tenant or workspace identifier. |
+| `graph_name` | Knowledge base, graph, or collection-prefix identifier. |
+| `source` | External source identifier for source-level imports, updates, or deletes. |
+| `attributes` | Optional application-specific low-sensitivity span attributes. |
+
+#### `start_span`
+
+Create a custom span that automatically includes the active observability context.
+
+```python
+from vector_graph_rag import start_span
+
+with start_span("app.custom_step", {"app.record_count": 10}):
+    run_custom_step()
+```
+
+```python
+def start_span(
+    name: str,
+    attributes: Optional[Mapping[str, Any]] = None,
+) -> Iterator[Any]
+```
+
+If OpenTelemetry is not installed, `start_span()` yields `None` and performs no tracing work.
+
+Vector Graph RAG does not record document text, prompt text, query text, generated answers, filters, or full URLs as span attributes by default. See [Observability](observability.md) for setup and span coverage.
 
 ### Methods
 

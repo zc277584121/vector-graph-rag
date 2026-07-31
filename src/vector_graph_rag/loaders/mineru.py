@@ -12,6 +12,8 @@ from typing import List, Optional
 
 from langchain_core.documents import Document
 
+from vector_graph_rag.observability import observability_context, start_span
+
 from .converter import ConversionResult
 
 
@@ -82,73 +84,85 @@ class MinerUConverter:
             ConversionResult with one Markdown document or conversion errors.
         """
         path = Path(source)
-        if not path.exists():
-            return ConversionResult(documents=[], errors=[f"File not found: {source}"])
-
-        ext = path.suffix.lower()
-        if ext not in self.supported_extensions:
-            return ConversionResult(
-                documents=[], errors=[f"Unsupported file type for MinerU: {ext}"]
-            )
-
-        temp_dir = None
-        if self.output_dir is None:
-            temp_dir = tempfile.TemporaryDirectory()
-            output_root = Path(temp_dir.name)
-        else:
-            output_root = self.output_dir
-            output_root.mkdir(parents=True, exist_ok=True)
-
-        try:
-            command = [
-                self._resolve_command(),
-                "-p",
-                str(path),
-                "-o",
-                str(output_root),
-                *self.extra_args,
-            ]
-            result = self._run_command(command)
-            if result.returncode != 0:
-                details = (result.stderr or result.stdout or "").strip()
-                message = f"MinerU failed to convert {source}"
-                if details:
-                    message = f"{message}: {details}"
-                return ConversionResult(documents=[], errors=[message])
-
-            markdown_path = self._find_markdown_output(output_root, path)
-            if markdown_path is None:
-                return ConversionResult(
-                    documents=[],
-                    errors=[f"MinerU completed but no Markdown output was found for {source}"],
-                )
-
-            content = markdown_path.read_text(encoding="utf-8").strip()
-            if not content:
-                return ConversionResult(
-                    documents=[],
-                    errors=[f"MinerU produced an empty Markdown document for {source}"],
-                )
-
-            doc = Document(
-                page_content=content,
-                metadata={
-                    "source": str(path),
-                    "source_type": ext[1:],
-                    "parser": "mineru",
+        with observability_context(source=str(path)):
+            with start_span(
+                "vgrag.convert_document",
+                {
+                    "vgrag.parser": "mineru",
+                    "vgrag.source_type": path.suffix.lower().lstrip("."),
                 },
-            )
-            return ConversionResult(documents=[doc])
+            ):
+                if not path.exists():
+                    return ConversionResult(documents=[], errors=[f"File not found: {source}"])
 
-        except subprocess.TimeoutExpired:
-            return ConversionResult(documents=[], errors=[f"MinerU timed out converting {source}"])
-        except Exception as exc:
-            return ConversionResult(
-                documents=[], errors=[f"Failed to convert {source}: {str(exc)}"]
-            )
-        finally:
-            if temp_dir is not None:
-                temp_dir.cleanup()
+                ext = path.suffix.lower()
+                if ext not in self.supported_extensions:
+                    return ConversionResult(
+                        documents=[], errors=[f"Unsupported file type for MinerU: {ext}"]
+                    )
+
+                temp_dir = None
+                if self.output_dir is None:
+                    temp_dir = tempfile.TemporaryDirectory()
+                    output_root = Path(temp_dir.name)
+                else:
+                    output_root = self.output_dir
+                    output_root.mkdir(parents=True, exist_ok=True)
+
+                try:
+                    command = [
+                        self._resolve_command(),
+                        "-p",
+                        str(path),
+                        "-o",
+                        str(output_root),
+                        *self.extra_args,
+                    ]
+                    result = self._run_command(command)
+                    if result.returncode != 0:
+                        details = (result.stderr or result.stdout or "").strip()
+                        message = f"MinerU failed to convert {source}"
+                        if details:
+                            message = f"{message}: {details}"
+                        return ConversionResult(documents=[], errors=[message])
+
+                    markdown_path = self._find_markdown_output(output_root, path)
+                    if markdown_path is None:
+                        return ConversionResult(
+                            documents=[],
+                            errors=[
+                                f"MinerU completed but no Markdown output was found for {source}"
+                            ],
+                        )
+
+                    content = markdown_path.read_text(encoding="utf-8").strip()
+                    if not content:
+                        return ConversionResult(
+                            documents=[],
+                            errors=[f"MinerU produced an empty Markdown document for {source}"],
+                        )
+
+                    doc = Document(
+                        page_content=content,
+                        metadata={
+                            "source": str(path),
+                            "source_type": ext[1:],
+                            "parser": "mineru",
+                        },
+                    )
+                    return ConversionResult(documents=[doc])
+
+                except subprocess.TimeoutExpired:
+                    return ConversionResult(
+                        documents=[], errors=[f"MinerU timed out converting {source}"]
+                    )
+                except Exception as exc:
+                    return ConversionResult(
+                        documents=[], errors=[f"Failed to convert {source}: {str(exc)}"]
+                    )
+                finally:
+                    if temp_dir is not None:
+                        temp_dir.cleanup()
 
     def _run_command(self, command: List[str]) -> subprocess.CompletedProcess[str]:
         """Run MinerU and clean up child processes on timeout."""

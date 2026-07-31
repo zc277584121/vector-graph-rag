@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
+from vector_graph_rag.observability import start_span
+
 if TYPE_CHECKING:
     from vector_graph_rag.storage.milvus import MilvusStore
 
@@ -372,11 +374,21 @@ class SubGraph:
         # Format IDs as quoted strings for Milvus filter
         ids_str = ", ".join(f'"{eid}"' for eid in ids_to_fetch)
         filter_expr = f"id in [{ids_str}]"
-        results = self._store.client.query(
-            collection_name=self._store.entity_collection,
-            filter=filter_expr,
-            output_fields=["id", "text", "relation_ids", "passage_ids"],
-        )
+        with start_span(
+            "vgrag.milvus.query",
+            {
+                "db.system": "milvus",
+                "db.collection.name": self._store.entity_collection,
+                "vgrag.record_type": "entity",
+                "vgrag.id_count": len(ids_to_fetch),
+                "vgrag.operation": "subgraph_fetch",
+            },
+        ):
+            results = self._store.client.query(
+                collection_name=self._store.entity_collection,
+                filter=filter_expr,
+                output_fields=["id", "text", "relation_ids", "passage_ids"],
+            )
 
         for r in results:
             entity = GraphEntity(
@@ -399,19 +411,29 @@ class SubGraph:
         # Format IDs as quoted strings for Milvus filter
         ids_str = ", ".join(f'"{rid}"' for rid in ids_to_fetch)
         filter_expr = f"id in [{ids_str}]"
-        results = self._store.client.query(
-            collection_name=self._store.relation_collection,
-            filter=filter_expr,
-            output_fields=[
-                "id",
-                "text",
-                "entity_ids",
-                "passage_ids",
-                "subject",
-                "predicate",
-                "object",
-            ],
-        )
+        with start_span(
+            "vgrag.milvus.query",
+            {
+                "db.system": "milvus",
+                "db.collection.name": self._store.relation_collection,
+                "vgrag.record_type": "relation",
+                "vgrag.id_count": len(ids_to_fetch),
+                "vgrag.operation": "subgraph_fetch",
+            },
+        ):
+            results = self._store.client.query(
+                collection_name=self._store.relation_collection,
+                filter=filter_expr,
+                output_fields=[
+                    "id",
+                    "text",
+                    "entity_ids",
+                    "passage_ids",
+                    "subject",
+                    "predicate",
+                    "object",
+                ],
+            )
 
         for r in results:
             text = r["text"]
@@ -450,11 +472,21 @@ class SubGraph:
         # Format IDs as quoted strings for Milvus filter
         ids_str = ", ".join(f'"{pid}"' for pid in ids_to_fetch)
         filter_expr = f"id in [{ids_str}]"
-        results = self._store.client.query(
-            collection_name=self._store.passage_collection,
-            filter=filter_expr,
-            output_fields=["id", "text", "entity_ids", "relation_ids"],
-        )
+        with start_span(
+            "vgrag.milvus.query",
+            {
+                "db.system": "milvus",
+                "db.collection.name": self._store.passage_collection,
+                "vgrag.record_type": "passage",
+                "vgrag.id_count": len(ids_to_fetch),
+                "vgrag.operation": "subgraph_fetch",
+            },
+        ):
+            results = self._store.client.query(
+                collection_name=self._store.passage_collection,
+                filter=filter_expr,
+                output_fields=["id", "text", "entity_ids", "relation_ids"],
+            )
 
         for r in results:
             passage = GraphPassage(

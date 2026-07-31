@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from vector_graph_rag import VectorGraphRAG, __version__
 from vector_graph_rag.config import Settings, get_settings
 from vector_graph_rag.graph.graph import Graph
+from vector_graph_rag.observability import observability_context, set_span_attributes, start_span
 from vector_graph_rag.storage.milvus import MilvusStore
 
 # ==================== Request/Response Schemas ====================
@@ -347,6 +348,42 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.state.settings = settings or get_settings()
     app.state.rag_instances: dict = {}  # graph_name -> VectorGraphRAG
     app.state.graph_instances: dict = {}  # graph_name -> Graph
+
+    def infer_graph_name_from_request(request: Request) -> Optional[str]:
+        """Infer graph context from safe URL structure fields."""
+        graph_name = request.query_params.get("graph_name")
+        if graph_name:
+            return graph_name
+
+        path_parts = request.url.path.strip("/").split("/")
+        if len(path_parts) >= 2 and path_parts[0] == "graph":
+            return path_parts[1]
+        return None
+
+    @app.middleware("http")
+    async def observability_middleware(request: Request, call_next):
+        """Attach request context to downstream spans."""
+        request_id = request.headers.get("x-request-id") or request.headers.get("x-correlation-id")
+        tenant_id = request.headers.get("x-tenant-id")
+        graph_name = infer_graph_name_from_request(request)
+        with observability_context(
+            request_id=request_id,
+            tenant_id=tenant_id,
+            graph_name=graph_name,
+            attributes={
+                "http.request.method": request.method,
+            },
+        ):
+            with start_span(
+                "vgrag.api.request",
+                {
+                    "vgrag.has_request_id": bool(request_id),
+                    "vgrag.has_tenant_id": bool(tenant_id),
+                },
+            ) as span:
+                response = await call_next(request)
+                set_span_attributes(span, {"http.response.status_code": response.status_code})
+                return response
 
     def get_rag(graph_name: Optional[str] = None) -> VectorGraphRAG:
         """Get or create RAG instance for a graph."""
