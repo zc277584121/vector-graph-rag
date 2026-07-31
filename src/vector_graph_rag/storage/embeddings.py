@@ -8,6 +8,7 @@ from typing import List, Literal, Optional
 from tqdm import tqdm
 
 from vector_graph_rag.config import Settings, get_settings
+from vector_graph_rag.observability import start_span
 from vector_graph_rag.storage.embedding_providers import (
     DEFAULT_MODELS,
     canonicalize_provider,
@@ -171,8 +172,18 @@ class EmbeddingModel:
         Returns:
             Embedding vector as a list of floats.
         """
-        embeddings = self._backend.encode(text, text_type=text_type)
-        return embeddings[0].tolist()
+        with start_span(
+            "vgrag.embedding.embed",
+            {
+                "vgrag.embedding_provider": self.provider_name,
+                "vgrag.embedding_model": self.model_name,
+                "vgrag.text_type": text_type,
+                "vgrag.text_count": 1,
+                "vgrag.text_length": len(text),
+            },
+        ):
+            embeddings = self._backend.encode(text, text_type=text_type)
+            return embeddings[0].tolist()
 
     def embed_batch(
         self,
@@ -200,11 +211,22 @@ class EmbeddingModel:
         all_embeddings = []
 
         batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
-        iterator = tqdm(batches, desc="Generating embeddings") if show_progress else batches
+        with start_span(
+            "vgrag.embedding.batch",
+            {
+                "vgrag.embedding_provider": self.provider_name,
+                "vgrag.embedding_model": self.model_name,
+                "vgrag.text_type": text_type,
+                "vgrag.text_count": len(texts),
+                "vgrag.batch_size": batch_size,
+                "vgrag.batch_count": len(batches),
+            },
+        ):
+            iterator = tqdm(batches, desc="Generating embeddings") if show_progress else batches
 
-        for batch in iterator:
-            embeddings = self._backend.encode(batch, text_type=text_type)
-            all_embeddings.extend(embeddings.tolist())
+            for batch in iterator:
+                embeddings = self._backend.encode(batch, text_type=text_type)
+                all_embeddings.extend(embeddings.tolist())
 
         return all_embeddings
 

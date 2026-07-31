@@ -6,6 +6,7 @@ import hashlib
 import logging
 import uuid
 import warnings
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
 from vector_graph_rag.config import Settings
@@ -24,6 +25,7 @@ from vector_graph_rag.models import (
     RerankResult,
     RetrievalDetail,
 )
+from vector_graph_rag.observability import observability_context, start_span
 from vector_graph_rag.storage.embeddings import EmbeddingModel
 from vector_graph_rag.storage.milvus import MilvusStore
 
@@ -179,6 +181,27 @@ class VectorGraphRAG:
                 embedding_model=self._embedding_model,
             )
         return self._retriever
+
+    @contextmanager
+    def _observed_operation(
+        self,
+        name: str,
+        attributes: Optional[Dict[str, Any]] = None,
+        source: Optional[str] = None,
+    ):
+        """Start a top-level operation span with graph context."""
+        operation = name.removeprefix("vgrag.")
+        span_attributes = {
+            "vgrag.operation": operation,
+            "vgrag.collection_prefix": self.settings.collection_prefix,
+            "vgrag.llm_model": self.settings.llm_model,
+            "vgrag.embedding_provider": self.settings.embedding_provider,
+            "vgrag.embedding_model": self.settings.embedding_model,
+            **(attributes or {}),
+        }
+        with observability_context(graph_name=self.settings.collection_prefix, source=source):
+            with start_span(name, span_attributes):
+                yield
 
     def _get_passages_from_subgraph(self, subgraph: SubGraph) -> List[str]:
         """
@@ -382,7 +405,13 @@ class VectorGraphRAG:
         Dict[str, Dict[str, Any]],
     ]:
         """Build graph records and embeddings for a document batch."""
-        result = builder.build_from_documents(documents)
+        with start_span(
+            "vgrag.graph.build",
+            {
+                "vgrag.document_count": len(documents),
+            },
+        ):
+            result = builder.build_from_documents(documents)
 
         if show_progress:
             logger.info("Generating embeddings...")
@@ -431,62 +460,70 @@ class VectorGraphRAG:
         show_progress: bool,
     ) -> None:
         """Insert a full graph after collections have been recreated."""
-        entity_metadatas = []
-        for eid in builder.entity_ids:
-            entity_metadatas.append(
-                {
-                    "relation_ids": builder.entity_to_relation_ids.get(eid, []),
-                    "passage_ids": builder.entity_to_passage_ids.get(eid, []),
-                }
-            )
-
-        relation_metadatas = []
-        for rid in builder.relation_ids:
-            triplet = builder.relation_id_to_triplet.get(rid)
-            metadata = {
-                "entity_ids": builder.relation_to_entity_ids.get(rid, []),
-                "passage_ids": builder.relation_to_passage_ids.get(rid, []),
-            }
-            if triplet:
-                metadata["subject"] = triplet.subject
-                metadata["predicate"] = triplet.predicate
-                metadata["object"] = triplet.object
-            relation_metadatas.append(metadata)
-
-        passage_metadatas = []
-        for pid in builder.passage_ids:
-            passage_metadatas.append(
-                self._merge_passage_metadata(
-                    passage_user_metadatas.get(pid, {}),
-                    builder.passage_to_entity_ids.get(pid, []),
-                    builder.passage_to_relation_ids.get(pid, []),
+        with start_span(
+            "vgrag.graph.insert_rebuilt",
+            {
+                "vgrag.entity_count": len(builder.entity_ids),
+                "vgrag.relation_count": len(builder.relation_ids),
+                "vgrag.passage_count": len(builder.passage_ids),
+            },
+        ):
+            entity_metadatas = []
+            for eid in builder.entity_ids:
+                entity_metadatas.append(
+                    {
+                        "relation_ids": builder.entity_to_relation_ids.get(eid, []),
+                        "passage_ids": builder.entity_to_passage_ids.get(eid, []),
+                    }
                 )
+
+            relation_metadatas = []
+            for rid in builder.relation_ids:
+                triplet = builder.relation_id_to_triplet.get(rid)
+                metadata = {
+                    "entity_ids": builder.relation_to_entity_ids.get(rid, []),
+                    "passage_ids": builder.relation_to_passage_ids.get(rid, []),
+                }
+                if triplet:
+                    metadata["subject"] = triplet.subject
+                    metadata["predicate"] = triplet.predicate
+                    metadata["object"] = triplet.object
+                relation_metadatas.append(metadata)
+
+            passage_metadatas = []
+            for pid in builder.passage_ids:
+                passage_metadatas.append(
+                    self._merge_passage_metadata(
+                        passage_user_metadatas.get(pid, {}),
+                        builder.passage_to_entity_ids.get(pid, []),
+                        builder.passage_to_relation_ids.get(pid, []),
+                    )
+                )
+
+            if show_progress:
+                logger.info("Inserting into Milvus...")
+
+            self._store._insert_entities(
+                builder.get_entity_texts(),
+                ids=builder.entity_ids,
+                embeddings=entity_embeddings,
+                metadatas=entity_metadatas,
+                show_progress=show_progress,
             )
-
-        if show_progress:
-            logger.info("Inserting into Milvus...")
-
-        self._store._insert_entities(
-            builder.get_entity_texts(),
-            ids=builder.entity_ids,
-            embeddings=entity_embeddings,
-            metadatas=entity_metadatas,
-            show_progress=show_progress,
-        )
-        self._store._insert_relations(
-            builder.get_relation_texts(),
-            ids=builder.relation_ids,
-            embeddings=relation_embeddings,
-            metadatas=relation_metadatas,
-            show_progress=show_progress,
-        )
-        self._store.insert_passages(
-            builder.get_passage_texts(),
-            ids=builder.passage_ids,
-            embeddings=passage_embeddings,
-            metadatas=passage_metadatas,
-            show_progress=show_progress,
-        )
+            self._store._insert_relations(
+                builder.get_relation_texts(),
+                ids=builder.relation_ids,
+                embeddings=relation_embeddings,
+                metadatas=relation_metadatas,
+                show_progress=show_progress,
+            )
+            self._store.insert_passages(
+                builder.get_passage_texts(),
+                ids=builder.passage_ids,
+                embeddings=passage_embeddings,
+                metadatas=passage_metadatas,
+                show_progress=show_progress,
+            )
 
     def _insert_incremental_graph(
         self,
@@ -708,26 +745,33 @@ class VectorGraphRAG:
         if not relation_ids:
             return [], []
 
-        # Query Milvus for relation data (using private method)
-        relation_data = self._store._get_relations_by_ids(relation_ids)
+        with start_span(
+            "vgrag.retrieve.passages_from_relations",
+            {
+                "vgrag.relation_count": len(relation_ids),
+                "vgrag.has_filter": bool(filter),
+            },
+        ):
+            # Query Milvus for relation data (using private method)
+            relation_data = self._store._get_relations_by_ids(relation_ids)
 
-        passage_ids: List[str] = []
-        seen_ids: set = set()
-        for rel in relation_data:
-            for pid in rel.get("passage_ids", []):
-                if pid not in seen_ids:
-                    seen_ids.add(pid)
-                    passage_ids.append(pid)
+            passage_ids: List[str] = []
+            seen_ids: set = set()
+            for rel in relation_data:
+                for pid in rel.get("passage_ids", []):
+                    if pid not in seen_ids:
+                        seen_ids.add(pid)
+                        passage_ids.append(pid)
 
-        if not passage_ids:
-            return [], []
+            if not passage_ids:
+                return [], []
 
-        passage_data = self._store.get_passages_by_ids(passage_ids, filter=filter)
-        id_to_text = {p["id"]: p["text"] for p in passage_data}
+            passage_data = self._store.get_passages_by_ids(passage_ids, filter=filter)
+            id_to_text = {p["id"]: p["text"] for p in passage_data}
 
-        passages = [id_to_text[pid] for pid in passage_ids if pid in id_to_text]
-        passage_ids = [pid for pid in passage_ids if pid in id_to_text]
-        return passage_ids, passages
+            passages = [id_to_text[pid] for pid in passage_ids if pid in id_to_text]
+            passage_ids = [pid for pid in passage_ids if pid in id_to_text]
+            return passage_ids, passages
 
     def add_texts(
         self,
@@ -816,15 +860,22 @@ class VectorGraphRAG:
             ...     "The theory of relativity changed physics forever.",
             ... ])
         """
-        documents = []
-        for i, text in enumerate(texts):
-            doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
-            metadata = metadatas[i] if metadatas and i < len(metadatas) else {}
-            documents.append(Document(page_content=text, metadata=metadata, id=doc_id))
+        with self._observed_operation(
+            "vgrag.rebuild_texts",
+            {
+                "vgrag.text_count": len(texts),
+                "vgrag.extract_triplets": extract_triplets,
+            },
+        ):
+            documents = []
+            for i, text in enumerate(texts):
+                doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
+                metadata = metadatas[i] if metadatas and i < len(metadatas) else {}
+                documents.append(Document(page_content=text, metadata=metadata, id=doc_id))
 
-        return self.rebuild_documents(
-            documents, extract_triplets=extract_triplets, show_progress=show_progress
-        )
+            return self.rebuild_documents(
+                documents, extract_triplets=extract_triplets, show_progress=show_progress
+            )
 
     def add_documents(
         self,
@@ -904,46 +955,53 @@ class VectorGraphRAG:
         Returns:
             ExtractionResult with graph statistics for the rebuilt graph.
         """
-        # Ensure all documents have IDs
-        for doc in documents:
-            if not doc.id:
-                doc.id = str(uuid.uuid4())
+        with self._observed_operation(
+            "vgrag.rebuild_documents",
+            {
+                "vgrag.document_count": len(documents),
+                "vgrag.extract_triplets": extract_triplets,
+            },
+        ):
+            # Ensure all documents have IDs
+            for doc in documents:
+                if not doc.id:
+                    doc.id = str(uuid.uuid4())
 
-        # Extract triplets if needed
-        if extract_triplets:
-            documents = self._triplet_extractor.extract_from_documents(
-                documents, show_progress=show_progress
+            # Extract triplets if needed
+            if extract_triplets:
+                documents = self._triplet_extractor.extract_from_documents(
+                    documents, show_progress=show_progress
+                )
+
+            (
+                self._extraction_result,
+                entity_embeddings,
+                relation_embeddings,
+                passage_embeddings,
+                passage_user_metadatas,
+            ) = self._build_graph_records(
+                self._graph_builder,
+                documents,
+                show_progress=show_progress,
             )
 
-        (
-            self._extraction_result,
-            entity_embeddings,
-            relation_embeddings,
-            passage_embeddings,
-            passage_user_metadatas,
-        ) = self._build_graph_records(
-            self._graph_builder,
-            documents,
-            show_progress=show_progress,
-        )
+            # Drop and recreate collections for fresh data
+            self._store.drop_collections()
+            self._store.create_collections(drop_existing=True)
 
-        # Drop and recreate collections for fresh data
-        self._store.drop_collections()
-        self._store.create_collections(drop_existing=True)
+            self._insert_rebuilt_graph(
+                self._graph_builder,
+                passage_user_metadatas,
+                entity_embeddings,
+                relation_embeddings,
+                passage_embeddings,
+                show_progress=show_progress,
+            )
 
-        self._insert_rebuilt_graph(
-            self._graph_builder,
-            passage_user_metadatas,
-            entity_embeddings,
-            relation_embeddings,
-            passage_embeddings,
-            show_progress=show_progress,
-        )
+            # Reset retriever to pick up new knowledge graph
+            self._retriever = None
 
-        # Reset retriever to pick up new knowledge graph
-        self._retriever = None
-
-        return self._extraction_result
+            return self._extraction_result
 
     def upsert_documents_by_source(
         self,
@@ -991,51 +1049,69 @@ class VectorGraphRAG:
             source_field=source_field,
             metadata=metadata,
         )
-        prepared_documents = self._prepare_upsert_documents(
-            resolved_source,
-            documents,
-            source_field=source_field,
-            metadata=metadata,
-        )
+        with self._observed_operation(
+            "vgrag.upsert_documents_by_source",
+            {
+                "vgrag.document_count": len(documents),
+                "vgrag.source_field": source_field,
+                "vgrag.extract_triplets": extract_triplets,
+            },
+            source=resolved_source,
+        ):
+            prepared_documents = self._prepare_upsert_documents(
+                resolved_source,
+                documents,
+                source_field=source_field,
+                metadata=metadata,
+            )
 
-        if extract_triplets:
-            prepared_documents = self._triplet_extractor.extract_from_documents(
+            if extract_triplets:
+                prepared_documents = self._triplet_extractor.extract_from_documents(
+                    prepared_documents,
+                    show_progress=show_progress,
+                )
+
+            builder = GraphBuilder(settings=self.settings)
+            (
+                result,
+                entity_embeddings,
+                relation_embeddings,
+                passage_embeddings,
+                passage_user_metadatas,
+            ) = self._build_graph_records(
+                builder,
                 prepared_documents,
                 show_progress=show_progress,
             )
 
-        builder = GraphBuilder(settings=self.settings)
-        (
-            result,
-            entity_embeddings,
-            relation_embeddings,
-            passage_embeddings,
-            passage_user_metadatas,
-        ) = self._build_graph_records(
-            builder,
-            prepared_documents,
-            show_progress=show_progress,
-        )
+            self.delete_documents_by_source(resolved_source, source_field=source_field)
+            with start_span(
+                "vgrag.graph.insert_incremental",
+                {
+                    "vgrag.source_field": source_field,
+                    "vgrag.entity_count": len(builder.entity_ids),
+                    "vgrag.relation_count": len(builder.relation_ids),
+                    "vgrag.passage_count": len(builder.passage_ids),
+                },
+            ):
+                entity_id_map, relation_id_map = self._insert_incremental_graph(
+                    builder,
+                    passage_user_metadatas,
+                    entity_embeddings,
+                    relation_embeddings,
+                    passage_embeddings,
+                    source=resolved_source,
+                    source_field=source_field,
+                    show_progress=show_progress,
+                )
 
-        self.delete_documents_by_source(resolved_source, source_field=source_field)
-        entity_id_map, relation_id_map = self._insert_incremental_graph(
-            builder,
-            passage_user_metadatas,
-            entity_embeddings,
-            relation_embeddings,
-            passage_embeddings,
-            source=resolved_source,
-            source_field=source_field,
-            show_progress=show_progress,
-        )
-
-        self._extraction_result = self._remap_extraction_result(
-            result,
-            entity_id_map=entity_id_map,
-            relation_id_map=relation_id_map,
-        )
-        self._retriever = None
-        return self._extraction_result
+            self._extraction_result = self._remap_extraction_result(
+                result,
+                entity_id_map=entity_id_map,
+                relation_id_map=relation_id_map,
+            )
+            self._retriever = None
+            return self._extraction_result
 
     def upsert_documents(self, *args: Any, **kwargs: Any) -> ExtractionResult:
         """
@@ -1072,87 +1148,98 @@ class VectorGraphRAG:
         source = self._normalize_source_value(source, "source")
         self._store._validate_field_name(source_field)
 
-        passages = self._store.get_passages_by_source(source, source_field=source_field)
-        if not passages:
-            return False
+        with self._observed_operation(
+            "vgrag.delete_documents_by_source",
+            {
+                "vgrag.source_field": source_field,
+            },
+            source=source,
+        ):
+            passages = self._store.get_passages_by_source(source, source_field=source_field)
+            if not passages:
+                return False
 
-        passage_ids = [passage["id"] for passage in passages]
-        removed_passage_ids = set(passage_ids)
+            passage_ids = [passage["id"] for passage in passages]
+            removed_passage_ids = set(passage_ids)
 
-        relation_ids = sorted(
-            {relation_id for passage in passages for relation_id in passage.get("relation_ids", [])}
-        )
-        entity_ids = sorted(
-            {entity_id for passage in passages for entity_id in passage.get("entity_ids", [])}
-        )
-
-        relations = self._store._get_relations_by_ids(relation_ids)
-        existing_relation_ids = {relation["id"] for relation in relations}
-        relation_update_records: List[Dict[str, Any]] = []
-        relation_delete_ids: List[str] = []
-        deleted_relation_ids: set[str] = set(relation_ids) - existing_relation_ids
-        for relation in relations:
-            relation_id = relation["id"]
-            new_passage_ids = self._remove_many(
-                relation.get("passage_ids", []),
-                removed_passage_ids,
-            )
-            if new_passage_ids:
-                update_record = {
-                    "id": relation_id,
-                    "text": relation["text"],
-                    "vector": self._embedding_model.embed(relation["text"]),
-                    "entity_ids": relation.get("entity_ids", []),
-                    "passage_ids": new_passage_ids,
+            relation_ids = sorted(
+                {
+                    relation_id
+                    for passage in passages
+                    for relation_id in passage.get("relation_ids", [])
                 }
-                for field in ["subject", "predicate", "object"]:
-                    if field in relation:
-                        update_record[field] = relation[field]
-                relation_update_records.append(update_record)
-            else:
-                relation_delete_ids.append(relation_id)
-                deleted_relation_ids.add(relation_id)
-
-        if relation_update_records:
-            self._store._upsert_relation_records(relation_update_records)
-        if relation_delete_ids:
-            self._store._delete_relations(relation_delete_ids)
-
-        entities = self._store._get_entities_by_ids(entity_ids)
-        entity_update_records: List[Dict[str, Any]] = []
-        entity_delete_ids: List[str] = []
-        for entity in entities:
-            entity_id = entity["id"]
-            new_passage_ids = self._remove_many(
-                entity.get("passage_ids", []),
-                removed_passage_ids,
             )
-            new_relation_ids = self._remove_many(
-                entity.get("relation_ids", []),
-                deleted_relation_ids,
+            entity_ids = sorted(
+                {entity_id for passage in passages for entity_id in passage.get("entity_ids", [])}
             )
 
-            if new_passage_ids or new_relation_ids:
-                entity_update_records.append(
-                    {
-                        "id": entity_id,
-                        "text": entity["text"],
-                        "vector": self._embedding_model.embed(entity["text"]),
-                        "passage_ids": new_passage_ids,
-                        "relation_ids": new_relation_ids,
-                    }
+            relations = self._store._get_relations_by_ids(relation_ids)
+            existing_relation_ids = {relation["id"] for relation in relations}
+            relation_update_records: List[Dict[str, Any]] = []
+            relation_delete_ids: List[str] = []
+            deleted_relation_ids: set[str] = set(relation_ids) - existing_relation_ids
+            for relation in relations:
+                relation_id = relation["id"]
+                new_passage_ids = self._remove_many(
+                    relation.get("passage_ids", []),
+                    removed_passage_ids,
                 )
-            else:
-                entity_delete_ids.append(entity_id)
+                if new_passage_ids:
+                    update_record = {
+                        "id": relation_id,
+                        "text": relation["text"],
+                        "vector": self._embedding_model.embed(relation["text"]),
+                        "entity_ids": relation.get("entity_ids", []),
+                        "passage_ids": new_passage_ids,
+                    }
+                    for field in ["subject", "predicate", "object"]:
+                        if field in relation:
+                            update_record[field] = relation[field]
+                    relation_update_records.append(update_record)
+                else:
+                    relation_delete_ids.append(relation_id)
+                    deleted_relation_ids.add(relation_id)
 
-        if entity_update_records:
-            self._store._upsert_entity_records(entity_update_records)
-        if entity_delete_ids:
-            self._store._delete_entities(entity_delete_ids)
+            if relation_update_records:
+                self._store._upsert_relation_records(relation_update_records)
+            if relation_delete_ids:
+                self._store._delete_relations(relation_delete_ids)
 
-        self._store.delete_passages(passage_ids)
-        self._retriever = None
-        return True
+            entities = self._store._get_entities_by_ids(entity_ids)
+            entity_update_records: List[Dict[str, Any]] = []
+            entity_delete_ids: List[str] = []
+            for entity in entities:
+                entity_id = entity["id"]
+                new_passage_ids = self._remove_many(
+                    entity.get("passage_ids", []),
+                    removed_passage_ids,
+                )
+                new_relation_ids = self._remove_many(
+                    entity.get("relation_ids", []),
+                    deleted_relation_ids,
+                )
+
+                if new_passage_ids or new_relation_ids:
+                    entity_update_records.append(
+                        {
+                            "id": entity_id,
+                            "text": entity["text"],
+                            "vector": self._embedding_model.embed(entity["text"]),
+                            "passage_ids": new_passage_ids,
+                            "relation_ids": new_relation_ids,
+                        }
+                    )
+                else:
+                    entity_delete_ids.append(entity_id)
+
+            if entity_update_records:
+                self._store._upsert_entity_records(entity_update_records)
+            if entity_delete_ids:
+                self._store._delete_entities(entity_delete_ids)
+
+            self._store.delete_passages(passage_ids)
+            self._retriever = None
+            return True
 
     def delete_documents(self, *args: Any, **kwargs: Any) -> bool:
         """
@@ -1246,25 +1333,32 @@ class VectorGraphRAG:
             ...     },
             ... ])
         """
-        docs = []
-        for doc_data in documents:
-            passage = doc_data.get("passage", doc_data.get("text"))
-            if passage is None:
-                raise ValueError('Each document must include "passage" or "text".')
-            doc_id = doc_data.get("id") or str(uuid.uuid4())
-            # Store triplets in metadata as list of [subject, predicate, object]
-            triplets = doc_data.get("triplets", [])
-            metadata = dict(doc_data.get("metadata") or {})
-            metadata["triplets"] = triplets
-            docs.append(
-                Document(
-                    page_content=passage,
-                    metadata=metadata,
-                    id=doc_id,
+        with self._observed_operation(
+            "vgrag.rebuild_documents_with_triplets",
+            {
+                "vgrag.document_count": len(documents),
+                "vgrag.extract_triplets": False,
+            },
+        ):
+            docs = []
+            for doc_data in documents:
+                passage = doc_data.get("passage", doc_data.get("text"))
+                if passage is None:
+                    raise ValueError('Each document must include "passage" or "text".')
+                doc_id = doc_data.get("id") or str(uuid.uuid4())
+                # Store triplets in metadata as list of [subject, predicate, object]
+                triplets = doc_data.get("triplets", [])
+                metadata = dict(doc_data.get("metadata") or {})
+                metadata["triplets"] = triplets
+                docs.append(
+                    Document(
+                        page_content=passage,
+                        metadata=metadata,
+                        id=doc_id,
+                    )
                 )
-            )
 
-        return self.rebuild_documents(docs, extract_triplets=False, show_progress=show_progress)
+            return self.rebuild_documents(docs, extract_triplets=False, show_progress=show_progress)
 
     def query(
         self,
@@ -1308,75 +1402,84 @@ class VectorGraphRAG:
             >>> print(result.answer)
             >>> print(result.subgraph.expansion_history)  # Visualize expansion
         """
-        retriever = self._ensure_retriever()
+        with self._observed_operation(
+            "vgrag.query",
+            {
+                "vgrag.use_reranking": use_reranking,
+                "vgrag.compare_naive": compare_naive,
+                "vgrag.has_filter": bool(filter),
+                "vgrag.question_length": len(question),
+            },
+        ):
+            retriever = self._ensure_retriever()
 
-        # Retrieve with custom parameters
-        retrieval_result = retriever.retrieve(
-            question,
-            entity_top_k=entity_top_k,
-            relation_top_k=relation_top_k,
-            entity_similarity_threshold=entity_similarity_threshold,
-            relation_similarity_threshold=relation_similarity_threshold,
-            expansion_degree=expansion_degree,
-            filter=filter,
-        )
-
-        # Build retrieval detail for visualization
-        retrieval_detail = RetrievalDetail(
-            entity_ids=retrieval_result.entity_ids,
-            entity_texts=retrieval_result.entity_texts,
-            entity_scores=retrieval_result.entity_scores,
-            relation_ids=retrieval_result.relation_ids,
-            relation_texts=retrieval_result.relation_texts,
-            relation_scores=retrieval_result.relation_scores,
-        )
-
-        # Get candidate relations from subgraph
-        candidate_ids = retrieval_result.expanded_relation_ids
-        candidate_texts = retrieval_result.expanded_relation_texts
-
-        # Rerank if enabled
-        rerank_result = None
-        if use_reranking and candidate_ids:
-            reranked_ids, reranked_texts = self._reranker.rerank(
-                question, candidate_ids, candidate_texts
+            # Retrieve with custom parameters
+            retrieval_result = retriever.retrieve(
+                question,
+                entity_top_k=entity_top_k,
+                relation_top_k=relation_top_k,
+                entity_similarity_threshold=entity_similarity_threshold,
+                relation_similarity_threshold=relation_similarity_threshold,
+                expansion_degree=expansion_degree,
+                filter=filter,
             )
-            rerank_result = RerankResult(
-                selected_relation_ids=reranked_ids,
-                selected_relation_texts=reranked_texts,
+
+            # Build retrieval detail for visualization
+            retrieval_detail = RetrievalDetail(
+                entity_ids=retrieval_result.entity_ids,
+                entity_texts=retrieval_result.entity_texts,
+                entity_scores=retrieval_result.entity_scores,
+                relation_ids=retrieval_result.relation_ids,
+                relation_texts=retrieval_result.relation_texts,
+                relation_scores=retrieval_result.relation_scores,
             )
-        else:
-            reranked_ids = candidate_ids[: self.settings.final_top_k]
-            reranked_texts = candidate_texts[: self.settings.final_top_k]
 
-        # Get passages from reranked relations
-        passage_ids, passages = self._get_passages_from_relations(reranked_ids, filter=filter)
-        final_passages = passages[: self.settings.final_top_k]
+            # Get candidate relations from subgraph
+            candidate_ids = retrieval_result.expanded_relation_ids
+            candidate_texts = retrieval_result.expanded_relation_texts
 
-        # Generate answer
-        answer = self._answer_generator.generate(question, final_passages)
+            # Rerank if enabled
+            rerank_result = None
+            if use_reranking and candidate_ids:
+                reranked_ids, reranked_texts = self._reranker.rerank(
+                    question, candidate_ids, candidate_texts
+                )
+                rerank_result = RerankResult(
+                    selected_relation_ids=reranked_ids,
+                    selected_relation_texts=reranked_texts,
+                )
+            else:
+                reranked_ids = candidate_ids[: self.settings.final_top_k]
+                reranked_texts = candidate_texts[: self.settings.final_top_k]
 
-        # Build eviction result
-        eviction_result = EvictionResult(
-            occurred=retrieval_result.eviction_occurred,
-            before_count=retrieval_result.eviction_before_count,
-            after_count=retrieval_result.eviction_after_count,
-        )
+            # Get passages from reranked relations
+            passage_ids, passages = self._get_passages_from_relations(reranked_ids, filter=filter)
+            final_passages = passages[: self.settings.final_top_k]
 
-        return QueryResult(
-            query=question,
-            answer=answer,
-            query_entities=retrieval_result.query_entities,
-            retrieved_passages=final_passages,
-            retrieved_relations=retrieval_result.relation_texts,
-            expanded_relations=candidate_texts,
-            reranked_relations=reranked_texts,
-            subgraph=retrieval_result.subgraph,
-            passages=final_passages,
-            retrieval_detail=retrieval_detail,
-            rerank_result=rerank_result,
-            eviction_result=eviction_result,
-        )
+            # Generate answer
+            answer = self._answer_generator.generate(question, final_passages)
+
+            # Build eviction result
+            eviction_result = EvictionResult(
+                occurred=retrieval_result.eviction_occurred,
+                before_count=retrieval_result.eviction_before_count,
+                after_count=retrieval_result.eviction_after_count,
+            )
+
+            return QueryResult(
+                query=question,
+                answer=answer,
+                query_entities=retrieval_result.query_entities,
+                retrieved_passages=final_passages,
+                retrieved_relations=retrieval_result.relation_texts,
+                expanded_relations=candidate_texts,
+                reranked_relations=reranked_texts,
+                subgraph=retrieval_result.subgraph,
+                passages=final_passages,
+                retrieval_detail=retrieval_detail,
+                rerank_result=rerank_result,
+                eviction_result=eviction_result,
+            )
 
     def query_simple(self, question: str, filter: Optional[str] = None) -> str:
         """
@@ -1408,18 +1511,25 @@ class VectorGraphRAG:
         Returns:
             QueryResult with answer and retrieved passages.
         """
-        retriever = self._ensure_retriever()
-        passages = retriever.retrieve_passages_naive(question, filter=filter)
-        answer = self._answer_generator.generate(question, passages)
+        with self._observed_operation(
+            "vgrag.query_naive",
+            {
+                "vgrag.has_filter": bool(filter),
+                "vgrag.question_length": len(question),
+            },
+        ):
+            retriever = self._ensure_retriever()
+            passages = retriever.retrieve_passages_naive(question, filter=filter)
+            answer = self._answer_generator.generate(question, passages)
 
-        return QueryResult(
-            query=question,
-            answer=answer,
-            retrieved_passages=passages,
-            retrieved_relations=[],
-            expanded_relations=[],
-            reranked_relations=[],
-        )
+            return QueryResult(
+                query=question,
+                answer=answer,
+                retrieved_passages=passages,
+                retrieved_relations=[],
+                expanded_relations=[],
+                reranked_relations=[],
+            )
 
     def retrieve(
         self,
@@ -1443,49 +1553,57 @@ class VectorGraphRAG:
         Returns:
             QueryResult with retrieved passages (answer will be empty).
         """
-        retriever = self._ensure_retriever()
-        top_k = top_k or self.settings.final_top_k
+        with self._observed_operation(
+            "vgrag.retrieve",
+            {
+                "vgrag.use_reranking": use_reranking,
+                "vgrag.has_filter": bool(filter),
+                "vgrag.question_length": len(question),
+            },
+        ):
+            retriever = self._ensure_retriever()
+            top_k = top_k or self.settings.final_top_k
 
-        # Retrieve
-        retrieval_result = retriever.retrieve(question, filter=filter)
+            # Retrieve
+            retrieval_result = retriever.retrieve(question, filter=filter)
 
-        # Get candidate relations
-        candidate_ids = retrieval_result.expanded_relation_ids
-        candidate_texts = retrieval_result.expanded_relation_texts
+            # Get candidate relations
+            candidate_ids = retrieval_result.expanded_relation_ids
+            candidate_texts = retrieval_result.expanded_relation_texts
 
-        # Rerank if enabled
-        if use_reranking and candidate_ids:
-            reranked_ids, reranked_texts = self._reranker.rerank(
-                question, candidate_ids, candidate_texts
+            # Rerank if enabled
+            if use_reranking and candidate_ids:
+                reranked_ids, reranked_texts = self._reranker.rerank(
+                    question, candidate_ids, candidate_texts
+                )
+            else:
+                reranked_ids = candidate_ids[:top_k]
+                reranked_texts = candidate_texts[:top_k]
+
+            # Get passages from reranked relations
+            passage_ids, passages = self._get_passages_from_relations(reranked_ids, filter=filter)
+
+            if len(passages) < top_k:
+                additional_passages = retriever.retrieve_passages_naive(
+                    question,
+                    top_k=top_k,
+                    filter=filter,
+                )
+                for passage in additional_passages:
+                    if passage not in passages:
+                        passages.append(passage)
+                        if len(passages) >= top_k:
+                            break
+            final_passages = passages[:top_k]
+
+            return QueryResult(
+                query=question,
+                answer="",  # No answer generation
+                retrieved_passages=final_passages,
+                retrieved_relations=retrieval_result.relation_texts,
+                expanded_relations=candidate_texts,
+                reranked_relations=reranked_texts,
             )
-        else:
-            reranked_ids = candidate_ids[:top_k]
-            reranked_texts = candidate_texts[:top_k]
-
-        # Get passages from reranked relations
-        passage_ids, passages = self._get_passages_from_relations(reranked_ids, filter=filter)
-
-        if len(passages) < top_k:
-            additional_passages = retriever.retrieve_passages_naive(
-                question,
-                top_k=top_k,
-                filter=filter,
-            )
-            for passage in additional_passages:
-                if passage not in passages:
-                    passages.append(passage)
-                    if len(passages) >= top_k:
-                        break
-        final_passages = passages[:top_k]
-
-        return QueryResult(
-            query=question,
-            answer="",  # No answer generation
-            retrieved_passages=final_passages,
-            retrieved_relations=retrieval_result.relation_texts,
-            expanded_relations=candidate_texts,
-            reranked_relations=reranked_texts,
-        )
 
     def retrieve_naive(
         self,
@@ -1507,18 +1625,25 @@ class VectorGraphRAG:
         Returns:
             QueryResult with retrieved passages (answer will be empty).
         """
-        retriever = self._ensure_retriever()
-        top_k = top_k or self.settings.final_top_k
-        passages = retriever.retrieve_passages_naive(question, top_k=top_k, filter=filter)
+        with self._observed_operation(
+            "vgrag.retrieve_naive",
+            {
+                "vgrag.has_filter": bool(filter),
+                "vgrag.question_length": len(question),
+            },
+        ):
+            retriever = self._ensure_retriever()
+            top_k = top_k or self.settings.final_top_k
+            passages = retriever.retrieve_passages_naive(question, top_k=top_k, filter=filter)
 
-        return QueryResult(
-            query=question,
-            answer="",  # No answer generation
-            retrieved_passages=passages,
-            retrieved_relations=[],
-            expanded_relations=[],
-            reranked_relations=[],
-        )
+            return QueryResult(
+                query=question,
+                answer="",  # No answer generation
+                retrieved_passages=passages,
+                retrieved_relations=[],
+                expanded_relations=[],
+                reranked_relations=[],
+            )
 
     def get_stats(self) -> dict:
         """

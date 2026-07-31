@@ -3044,6 +3044,20 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-sdk"
+version = "1.39.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/eb/fb/c76080c9ba07e1e8235d24cdcc4d125ef7aa3edf23eb4e497c2e50889adc/opentelemetry_sdk-1.39.1.tar.gz", hash = "sha256:cf4d4563caf7bff906c9f7967e2be22d0d6b349b908be0d90fb21c8e9c995cc6", size = 171460, upload-time = "2025-12-11T13:32:49.369Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/98/e91cf858f203d86f4eccdf763dcf01cf03f1dae80c3750f7e635bfa206b6/opentelemetry_sdk-1.39.1-py3-none-any.whl", hash = "sha256:4d5482c478513ecb0a5d938dcc61394e647066e0cc2676bee9f3af3f3f45f01c", size = 132565, upload-time = "2025-12-11T13:32:35.069Z" },
+]
+
+[[package]]
 name = "opentelemetry-semantic-conventions"
 version = "0.60b1"
 source = { registry = "https://pypi.org/simple" }
@@ -5953,6 +5967,8 @@ all = [
     { name = "ollama" },
     { name = "onnxruntime", version = "1.20.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')" },
     { name = "onnxruntime", version = "1.23.2", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -5971,6 +5987,7 @@ api = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 dev = [
+    { name = "opentelemetry-sdk" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -6018,6 +6035,9 @@ mineru = [
 mistral = [
     { name = "mistralai" },
 ]
+observability = [
+    { name = "opentelemetry-api" },
+]
 ollama = [
     { name = "ollama" },
 ]
@@ -6059,6 +6079,8 @@ requires-dist = [
     { name = "onnxruntime", marker = "python_full_version == '3.10.*' and extra == 'onnx'", specifier = ">=1.17,<1.24" },
     { name = "onnxruntime", marker = "python_full_version >= '3.11' and extra == 'onnx'", specifier = ">=1.17" },
     { name = "openai", specifier = ">=1.0.0" },
+    { name = "opentelemetry-api", marker = "extra == 'observability'", specifier = ">=1.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pymilvus", specifier = ">=2.4.0,<2.6.10" },
@@ -6086,10 +6108,10 @@ requires-dist = [
     { name = "trafilatura", marker = "extra == 'mineru'", specifier = ">=2.0.0" },
     { name = "transformers", marker = "extra == 'hf'", specifier = ">=4.30.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.27.0" },
-    { name = "vector-graph-rag", extras = ["dev", "api", "hf", "google", "voyage", "jina", "mistral", "ollama", "local", "onnx"], marker = "extra == 'all'" },
+    { name = "vector-graph-rag", extras = ["dev", "api", "hf", "google", "voyage", "jina", "mistral", "ollama", "local", "onnx", "observability"], marker = "extra == 'all'" },
     { name = "voyageai", marker = "extra == 'voyage'", specifier = ">=0.3" },
 ]
-provides-extras = ["dev", "api", "hf", "google", "voyage", "jina", "mistral", "ollama", "local", "onnx", "all", "loaders", "docling", "mineru", "docs"]
+provides-extras = ["dev", "api", "hf", "google", "voyage", "jina", "mistral", "ollama", "local", "onnx", "observability", "all", "loaders", "docling", "mineru", "docs"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "trafilatura", specifier = ">=2.0.0" }]

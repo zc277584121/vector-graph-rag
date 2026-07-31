@@ -39,6 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "opentelemetry-sdk>=1.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "ruff>=0.1.0",
@@ -77,8 +78,11 @@ onnx = [
     "tokenizers>=0.15",
     "huggingface-hub>=0.20",
 ]
+observability = [
+    "opentelemetry-api>=1.0",
+]
 all = [
-    "vector-graph-rag[dev,api,hf,google,voyage,jina,mistral,ollama,local,onnx]",
+    "vector-graph-rag[dev,api,hf,google,voyage,jina,mistral,ollama,local,onnx,observability]",
 ]
 loaders = [
     "markitdown[docx,pdf]>=0.1.4",

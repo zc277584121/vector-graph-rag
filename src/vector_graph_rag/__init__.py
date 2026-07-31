@@ -14,6 +14,7 @@ from vector_graph_rag.llm.cache import LLMCache, get_llm_cache
 from vector_graph_rag.llm.extractor import TripletExtractor
 from vector_graph_rag.llm.reranker import LLMReranker
 from vector_graph_rag.models import Document, Entity, Passage, Relation, Triplet
+from vector_graph_rag.observability import observability_context, start_span
 from vector_graph_rag.rag import VectorGraphRAG, create_rag
 from vector_graph_rag.storage.embeddings import EmbeddingModel
 from vector_graph_rag.storage.milvus import MilvusStore
@@ -39,4 +40,6 @@ __all__ = [
     "create_rag",
     "LLMCache",
     "get_llm_cache",
+    "observability_context",
+    "start_span",
 ]

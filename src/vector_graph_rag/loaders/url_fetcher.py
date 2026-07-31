@@ -10,6 +10,8 @@ import requests
 import trafilatura
 from langchain_core.documents import Document
 
+from vector_graph_rag.observability import observability_context, start_span
+
 from .converter import ConversionResult, DocumentConverter, DocumentConverterProtocol
 
 
@@ -47,50 +49,57 @@ class URLFetcher:
 
     def _is_pdf_url(self, url: str) -> bool:
         """Check if URL points to a PDF file."""
-        # Check by URL extension
-        if url.lower().endswith(".pdf"):
-            return True
+        with start_span("vgrag.url.detect_type"):
+            # Check by URL extension
+            if url.lower().endswith(".pdf"):
+                return True
 
-        # Check by Content-Type header
-        try:
-            response = requests.head(url, headers=self.headers, timeout=5, allow_redirects=True)
-            content_type = response.headers.get("Content-Type", "").lower()
-            return "application/pdf" in content_type
-        except Exception:
-            return False
+            # Check by Content-Type header
+            try:
+                response = requests.head(url, headers=self.headers, timeout=5, allow_redirects=True)
+                content_type = response.headers.get("Content-Type", "").lower()
+                return "application/pdf" in content_type
+            except Exception:
+                return False
 
     def _fetch_pdf_url(self, url: str) -> ConversionResult:
         """Download and convert a PDF URL."""
-        try:
-            # Download PDF to temporary file
-            response = requests.get(url, headers=self.headers, timeout=self.timeout)
-            response.raise_for_status()
-
-            # Create temporary file
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
-                tmp_file.write(response.content)
-                tmp_path = tmp_file.name
-
-            # Convert PDF using DocumentConverter
-            result = self.converter.convert(tmp_path)
-
-            # Update metadata to reflect URL source
-            for doc in result.documents:
-                doc.metadata["source"] = url
-                doc.metadata["source_type"] = "pdf_url"
-
-            # Clean up temporary file
+        with start_span(
+            "vgrag.fetch_url",
+            {
+                "vgrag.source_type": "pdf_url",
+            },
+        ):
             try:
-                Path(tmp_path).unlink()
-            except Exception:
-                pass
+                # Download PDF to temporary file
+                response = requests.get(url, headers=self.headers, timeout=self.timeout)
+                response.raise_for_status()
 
-            return result
+                # Create temporary file
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
+                    tmp_file.write(response.content)
+                    tmp_path = tmp_file.name
 
-        except Exception as e:
-            return ConversionResult(
-                documents=[], errors=[f"Failed to fetch PDF from {url}: {str(e)}"]
-            )
+                # Convert PDF using DocumentConverter
+                result = self.converter.convert(tmp_path)
+
+                # Update metadata to reflect URL source
+                for doc in result.documents:
+                    doc.metadata["source"] = url
+                    doc.metadata["source_type"] = "pdf_url"
+
+                # Clean up temporary file
+                try:
+                    Path(tmp_path).unlink()
+                except Exception:
+                    pass
+
+                return result
+
+            except Exception as e:
+                return ConversionResult(
+                    documents=[], errors=[f"Failed to fetch PDF from {url}: {str(e)}"]
+                )
 
     def fetch(self, url: str) -> ConversionResult:
         """
@@ -102,44 +111,60 @@ class URLFetcher:
         Returns:
             ConversionResult with Document
         """
-        try:
-            # Check if URL points to PDF
-            if self._is_pdf_url(url):
-                return self._fetch_pdf_url(url)
-
-            # Fetch HTML content for web pages with custom headers
-            response = requests.get(
-                url, headers=self.headers, timeout=self.timeout, allow_redirects=True
-            )
-            response.raise_for_status()
-            html_content = response.text
-
-            if not html_content:
-                return ConversionResult(documents=[], errors=[f"Failed to fetch URL: {url}"])
-
-            # Extract content as markdown (best option for text-focused RAG)
-            content = trafilatura.extract(
-                html_content,
-                output_format="markdown",
-                include_links=self.include_links,
-                include_images=self.include_images,
-            )
-
-            if not content:
-                return ConversionResult(documents=[], errors=[f"No content extracted from: {url}"])
-
-            doc = Document(
-                page_content=content,
-                metadata={
-                    "source": url,
-                    "source_type": "url",
+        with observability_context(source=url):
+            with start_span(
+                "vgrag.fetch_url",
+                {
+                    "vgrag.source_type": "url",
+                    "vgrag.include_links": self.include_links,
+                    "vgrag.include_images": self.include_images,
                 },
-            )
+            ):
+                try:
+                    # Check if URL points to PDF
+                    if self._is_pdf_url(url):
+                        return self._fetch_pdf_url(url)
 
-            return ConversionResult(documents=[doc])
+                    # Fetch HTML content for web pages with custom headers
+                    response = requests.get(
+                        url, headers=self.headers, timeout=self.timeout, allow_redirects=True
+                    )
+                    response.raise_for_status()
+                    html_content = response.text
 
-        except Exception as e:
-            return ConversionResult(documents=[], errors=[f"Failed to fetch {url}: {str(e)}"])
+                    if not html_content:
+                        return ConversionResult(
+                            documents=[], errors=[f"Failed to fetch URL: {url}"]
+                        )
+
+                    # Extract content as markdown (best option for text-focused RAG)
+                    content = trafilatura.extract(
+                        html_content,
+                        output_format="markdown",
+                        include_links=self.include_links,
+                        include_images=self.include_images,
+                    )
+
+                    if not content:
+                        return ConversionResult(
+                            documents=[],
+                            errors=[f"No content extracted from: {url}"],
+                        )
+
+                    doc = Document(
+                        page_content=content,
+                        metadata={
+                            "source": url,
+                            "source_type": "url",
+                        },
+                    )
+
+                    return ConversionResult(documents=[doc])
+
+                except Exception as e:
+                    return ConversionResult(
+                        documents=[], errors=[f"Failed to fetch {url}: {str(e)}"]
+                    )
 
     def fetch_batch(self, urls: list[str]) -> ConversionResult:
         """Fetch multiple URLs."""

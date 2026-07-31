@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.documents import Document
 
+from vector_graph_rag.observability import observability_context, start_span
+
 from .converter import ConversionResult
 
 try:
@@ -84,45 +86,56 @@ class DoclingConverter:
             ConversionResult with one Markdown document or conversion errors.
         """
         path = Path(source)
-        if not path.exists():
-            return ConversionResult(documents=[], errors=[f"File not found: {source}"])
-
-        ext = path.suffix.lower()
-        if ext not in self.supported_extensions:
-            return ConversionResult(
-                documents=[], errors=[f"Unsupported file type for Docling: {ext}"]
-            )
-
-        try:
-            result = self.converter.convert(str(path))
-            docling_document = getattr(result, "document", None)
-            if docling_document is None:
-                return ConversionResult(
-                    documents=[],
-                    errors=[f"Docling completed but no document output was found for {source}"],
-                )
-
-            content = docling_document.export_to_markdown(**self.export_kwargs).strip()
-            if not content:
-                return ConversionResult(
-                    documents=[],
-                    errors=[f"Docling produced an empty Markdown document for {source}"],
-                )
-
-            doc = Document(
-                page_content=content,
-                metadata={
-                    "source": str(path),
-                    "source_type": ext[1:],
-                    "parser": "docling",
+        with observability_context(source=str(path)):
+            with start_span(
+                "vgrag.convert_document",
+                {
+                    "vgrag.parser": "docling",
+                    "vgrag.source_type": path.suffix.lower().lstrip("."),
                 },
-            )
-            return ConversionResult(documents=[doc])
+            ):
+                if not path.exists():
+                    return ConversionResult(documents=[], errors=[f"File not found: {source}"])
 
-        except Exception as exc:
-            return ConversionResult(
-                documents=[], errors=[f"Failed to convert {source} with Docling: {str(exc)}"]
-            )
+                ext = path.suffix.lower()
+                if ext not in self.supported_extensions:
+                    return ConversionResult(
+                        documents=[], errors=[f"Unsupported file type for Docling: {ext}"]
+                    )
+
+                try:
+                    result = self.converter.convert(str(path))
+                    docling_document = getattr(result, "document", None)
+                    if docling_document is None:
+                        return ConversionResult(
+                            documents=[],
+                            errors=[
+                                f"Docling completed but no document output was found for {source}"
+                            ],
+                        )
+
+                    content = docling_document.export_to_markdown(**self.export_kwargs).strip()
+                    if not content:
+                        return ConversionResult(
+                            documents=[],
+                            errors=[f"Docling produced an empty Markdown document for {source}"],
+                        )
+
+                    doc = Document(
+                        page_content=content,
+                        metadata={
+                            "source": str(path),
+                            "source_type": ext[1:],
+                            "parser": "docling",
+                        },
+                    )
+                    return ConversionResult(documents=[doc])
+
+                except Exception as exc:
+                    return ConversionResult(
+                        documents=[],
+                        errors=[f"Failed to convert {source} with Docling: {str(exc)}"],
+                    )
 
     def convert_batch(self, sources: List[str]) -> ConversionResult:
         """Convert multiple files."""

@@ -10,6 +10,7 @@ from vector_graph_rag.config import Settings, get_settings
 from vector_graph_rag.graph.builder import GraphBuilder
 from vector_graph_rag.graph.knowledge_graph import SubGraph
 from vector_graph_rag.llm.extractor import EntityExtractor
+from vector_graph_rag.observability import start_span
 from vector_graph_rag.storage.embeddings import EmbeddingModel
 from vector_graph_rag.storage.milvus import MilvusStore
 
@@ -97,7 +98,13 @@ class GraphRetriever:
 
     def _extract_query_entities(self, query: str) -> List[str]:
         """Extract named entities from the query."""
-        return self.entity_extractor.extract(query)
+        with start_span(
+            "vgrag.retrieve.extract_query_entities",
+            {
+                "vgrag.question_length": len(query),
+            },
+        ):
+            return self.entity_extractor.extract(query)
 
     def _retrieve_entities(
         self,
@@ -126,33 +133,41 @@ class GraphRetriever:
             else self.settings.entity_similarity_threshold
         )
 
-        # Embed query entities
-        query_embeddings = self.embedding_model.embed_batch(query_entities)
+        with start_span(
+            "vgrag.retrieve.entities",
+            {
+                "vgrag.query_entity_count": len(query_entities),
+                "vgrag.top_k": top_k,
+                "vgrag.similarity_threshold": threshold,
+            },
+        ):
+            # Embed query entities
+            query_embeddings = self.embedding_model.embed_batch(query_entities)
 
-        # Search for similar entities (using private method)
-        search_results = self.store._search_entities(query_embeddings, top_k=top_k)
+            # Search for similar entities (using private method)
+            search_results = self.store._search_entities(query_embeddings, top_k=top_k)
 
-        # Aggregate results with threshold filtering
-        entity_ids: List[str] = []
-        entity_texts: List[str] = []
-        scores: List[float] = []
-        seen_ids: set = set()
+            # Aggregate results with threshold filtering
+            entity_ids: List[str] = []
+            entity_texts: List[str] = []
+            scores: List[float] = []
+            seen_ids: set = set()
 
-        for result_list in search_results:
-            for result in result_list:
-                score = result["distance"]
-                # Filter by similarity threshold
-                if score <= threshold:
-                    continue
+            for result_list in search_results:
+                for result in result_list:
+                    score = result["distance"]
+                    # Filter by similarity threshold
+                    if score <= threshold:
+                        continue
 
-                entity_id = result["entity"]["id"]
-                if entity_id not in seen_ids:
-                    seen_ids.add(entity_id)
-                    entity_ids.append(entity_id)
-                    entity_texts.append(result["entity"]["text"])
-                    scores.append(score)
+                    entity_id = result["entity"]["id"]
+                    if entity_id not in seen_ids:
+                        seen_ids.add(entity_id)
+                        entity_ids.append(entity_id)
+                        entity_texts.append(result["entity"]["text"])
+                        scores.append(score)
 
-        return entity_ids, entity_texts, scores
+            return entity_ids, entity_texts, scores
 
     def _retrieve_relations(
         self,
@@ -178,25 +193,33 @@ class GraphRetriever:
             else self.settings.relation_similarity_threshold
         )
 
-        # Embed query
-        query_embedding = self.embedding_model.embed(query)
+        with start_span(
+            "vgrag.retrieve.relations",
+            {
+                "vgrag.question_length": len(query),
+                "vgrag.top_k": top_k,
+                "vgrag.similarity_threshold": threshold,
+            },
+        ):
+            # Embed query
+            query_embedding = self.embedding_model.embed(query)
 
-        # Search for similar relations (using private method)
-        results = self.store._search_relations(query_embedding, top_k=top_k)
+            # Search for similar relations (using private method)
+            results = self.store._search_relations(query_embedding, top_k=top_k)
 
-        # Filter by similarity threshold
-        relation_ids: List[str] = []
-        relation_texts: List[str] = []
-        scores: List[float] = []
+            # Filter by similarity threshold
+            relation_ids: List[str] = []
+            relation_texts: List[str] = []
+            scores: List[float] = []
 
-        for r in results:
-            score = r["distance"]
-            if score > threshold:
-                relation_ids.append(r["entity"]["id"])
-                relation_texts.append(r["entity"]["text"])
-                scores.append(score)
+            for r in results:
+                score = r["distance"]
+                if score > threshold:
+                    relation_ids.append(r["entity"]["id"])
+                    relation_texts.append(r["entity"]["text"])
+                    scores.append(score)
 
-        return relation_ids, relation_texts, scores
+            return relation_ids, relation_texts, scores
 
     def _expand_subgraph(
         self,
@@ -220,15 +243,23 @@ class GraphRetriever:
         """
         degree = degree or self.settings.expansion_degree
 
-        # Create subgraph with initial nodes
-        subgraph = SubGraph(self.store)
-        subgraph.add_entities(entity_ids)
-        subgraph.add_relations(relation_ids)
+        with start_span(
+            "vgrag.subgraph.expand",
+            {
+                "vgrag.seed_entity_count": len(entity_ids),
+                "vgrag.seed_relation_count": len(relation_ids),
+                "vgrag.expansion_degree": degree,
+            },
+        ):
+            # Create subgraph with initial nodes
+            subgraph = SubGraph(self.store)
+            subgraph.add_entities(entity_ids)
+            subgraph.add_relations(relation_ids)
 
-        # Expand by given degree
-        subgraph.expand(degree=degree)
+            # Expand by given degree
+            subgraph.expand(degree=degree)
 
-        return subgraph
+            return subgraph
 
     def _apply_eviction(
         self,
@@ -251,42 +282,58 @@ class GraphRetriever:
         """
         before_count = len(expanded_relation_ids)
 
-        if before_count == 0:
-            return [], [], False, 0
+        with start_span(
+            "vgrag.retrieve.eviction",
+            {
+                "vgrag.before_count": before_count,
+                "vgrag.relation_number_threshold": relation_number_threshold,
+            },
+        ):
+            if before_count == 0:
+                return [], [], False, 0
 
-        if before_count <= relation_number_threshold:
-            # No eviction needed, fetch all relation texts
+            if before_count <= relation_number_threshold:
+                # No eviction needed, fetch all relation texts
+                ids_str = ", ".join(f'"{rid}"' for rid in expanded_relation_ids)
+                filter_expr = f"id in [{ids_str}]"
+                results = self.store.client.query(
+                    collection_name=self.store.relation_collection,
+                    filter=filter_expr,
+                    output_fields=["id", "text"],
+                )
+                id_to_text = {r["id"]: r["text"] for r in results}
+                # Sort by ID to match HippoRAG's behavior (Milvus client.get returns sorted by ID)
+                sorted_ids = sorted(expanded_relation_ids)
+                return (
+                    sorted_ids,
+                    [id_to_text.get(rid, "") for rid in sorted_ids],
+                    False,
+                    before_count,
+                )
+
+            # Eviction needed: use vector search to filter most relevant relations
+            logger.info(
+                "Use Eviction Strategy. (%d -> %d)", before_count, relation_number_threshold
+            )
+
+            query_embedding = self.embedding_model.embed(query)
             ids_str = ", ".join(f'"{rid}"' for rid in expanded_relation_ids)
             filter_expr = f"id in [{ids_str}]"
-            results = self.store.client.query(
+
+            search_results = self.store.client.search(
                 collection_name=self.store.relation_collection,
+                data=[query_embedding],
+                limit=relation_number_threshold,
                 filter=filter_expr,
                 output_fields=["id", "text"],
-            )
-            id_to_text = {r["id"]: r["text"] for r in results}
-            # Sort by ID to match HippoRAG's behavior (Milvus client.get returns sorted by ID)
-            sorted_ids = sorted(expanded_relation_ids)
-            return sorted_ids, [id_to_text.get(rid, "") for rid in sorted_ids], False, before_count
+            )[0]
 
-        # Eviction needed: use vector search to filter most relevant relations
-        logger.info("Use Eviction Strategy. (%d -> %d)", before_count, relation_number_threshold)
+            filtered_ids = [r["entity"]["id"] for r in search_results[:relation_number_threshold]]
+            filtered_texts = [
+                r["entity"]["text"] for r in search_results[:relation_number_threshold]
+            ]
 
-        query_embedding = self.embedding_model.embed(query)
-        ids_str = ", ".join(f'"{rid}"' for rid in expanded_relation_ids)
-        filter_expr = f"id in [{ids_str}]"
-
-        search_results = self.store.client.search(
-            collection_name=self.store.relation_collection,
-            data=[query_embedding],
-            limit=relation_number_threshold,
-            filter=filter_expr,
-            output_fields=["id", "text"],
-        )[0]
-
-        filtered_ids = [r["entity"]["id"] for r in search_results[:relation_number_threshold]]
-        filtered_texts = [r["entity"]["text"] for r in search_results[:relation_number_threshold]]
-
-        return filtered_ids, filtered_texts, True, before_count
+            return filtered_ids, filtered_texts, True, before_count
 
     def _get_allowed_passage_ids(self, filter: Optional[str]) -> Optional[Set[str]]:
         """Return passage IDs matching a metadata filter, or None when no filter is set."""
@@ -307,9 +354,7 @@ class GraphRetriever:
 
         relation_data = self.store._get_relations_by_ids(relation_ids)
         allowed_relation_ids = {
-            r["id"]
-            for r in relation_data
-            if set(r.get("passage_ids", [])) & allowed_passage_ids
+            r["id"] for r in relation_data if set(r.get("passage_ids", [])) & allowed_passage_ids
         }
         return [rid for rid in relation_ids if rid in allowed_relation_ids]
 
@@ -375,64 +420,71 @@ class GraphRetriever:
             RetrievalResult with all retrieval information, including
             the SubGraph for debugging/visualization.
         """
-        allowed_passage_ids = self._get_allowed_passage_ids(filter)
+        with start_span(
+            "vgrag.retrieve.graph",
+            {
+                "vgrag.has_filter": bool(filter),
+                "vgrag.question_length": len(query),
+            },
+        ):
+            allowed_passage_ids = self._get_allowed_passage_ids(filter)
 
-        # Extract query entities
-        query_entities = self._extract_query_entities(query)
+            # Extract query entities
+            query_entities = self._extract_query_entities(query)
 
-        # Retrieve entities (with threshold filtering)
-        entity_ids, entity_texts, entity_scores = self._retrieve_entities(
-            query_entities,
-            top_k=entity_top_k,
-            similarity_threshold=entity_similarity_threshold,
-        )
+            # Retrieve entities (with threshold filtering)
+            entity_ids, entity_texts, entity_scores = self._retrieve_entities(
+                query_entities,
+                top_k=entity_top_k,
+                similarity_threshold=entity_similarity_threshold,
+            )
 
-        # Retrieve relations (with threshold filtering)
-        relation_ids, relation_texts, relation_scores = self._retrieve_relations(
-            query,
-            top_k=relation_top_k,
-            similarity_threshold=relation_similarity_threshold,
-        )
-        relation_ids, relation_texts, relation_scores = (
-            self._filter_relation_results_by_passage_ids(
-                relation_ids,
-                relation_texts,
-                relation_scores,
+            # Retrieve relations (with threshold filtering)
+            relation_ids, relation_texts, relation_scores = self._retrieve_relations(
+                query,
+                top_k=relation_top_k,
+                similarity_threshold=relation_similarity_threshold,
+            )
+            relation_ids, relation_texts, relation_scores = (
+                self._filter_relation_results_by_passage_ids(
+                    relation_ids,
+                    relation_texts,
+                    relation_scores,
+                    allowed_passage_ids,
+                )
+            )
+
+            # Expand subgraph
+            subgraph = self._expand_subgraph(entity_ids, relation_ids, degree=expansion_degree)
+
+            # Apply eviction strategy if needed
+            threshold = relation_number_threshold or self.settings.relation_number_threshold
+            filtered_expanded_relation_ids = self._filter_relations_by_passage_ids(
+                list(subgraph.relation_ids),
                 allowed_passage_ids,
             )
-        )
+            expanded_ids, expanded_texts, eviction_occurred, eviction_before = self._apply_eviction(
+                query,
+                filtered_expanded_relation_ids,
+                threshold,
+            )
 
-        # Expand subgraph
-        subgraph = self._expand_subgraph(entity_ids, relation_ids, degree=expansion_degree)
-
-        # Apply eviction strategy if needed
-        threshold = relation_number_threshold or self.settings.relation_number_threshold
-        filtered_expanded_relation_ids = self._filter_relations_by_passage_ids(
-            list(subgraph.relation_ids),
-            allowed_passage_ids,
-        )
-        expanded_ids, expanded_texts, eviction_occurred, eviction_before = self._apply_eviction(
-            query,
-            filtered_expanded_relation_ids,
-            threshold,
-        )
-
-        return RetrievalResult(
-            entity_ids=entity_ids,
-            entity_texts=entity_texts,
-            entity_scores=entity_scores,
-            relation_ids=relation_ids,
-            relation_texts=relation_texts,
-            relation_scores=relation_scores,
-            subgraph=subgraph,
-            expanded_relation_ids=expanded_ids,
-            expanded_relation_texts=expanded_texts,
-            query=query,
-            query_entities=query_entities,
-            eviction_before_count=eviction_before,
-            eviction_after_count=len(expanded_ids),
-            eviction_occurred=eviction_occurred,
-        )
+            return RetrievalResult(
+                entity_ids=entity_ids,
+                entity_texts=entity_texts,
+                entity_scores=entity_scores,
+                relation_ids=relation_ids,
+                relation_texts=relation_texts,
+                relation_scores=relation_scores,
+                subgraph=subgraph,
+                expanded_relation_ids=expanded_ids,
+                expanded_relation_texts=expanded_texts,
+                query=query,
+                query_entities=query_entities,
+                eviction_before_count=eviction_before,
+                eviction_after_count=len(expanded_ids),
+                eviction_occurred=eviction_occurred,
+            )
 
     def retrieve_passages_naive(
         self,
@@ -452,6 +504,14 @@ class GraphRetriever:
             List of passage texts.
         """
         top_k = top_k or self.settings.final_top_k
-        query_embedding = self.embedding_model.embed(query)
-        results = self.store.search_passages(query_embedding, top_k=top_k, filter=filter)
-        return [r["entity"]["text"] for r in results]
+        with start_span(
+            "vgrag.retrieve.passages_naive",
+            {
+                "vgrag.question_length": len(query),
+                "vgrag.top_k": top_k,
+                "vgrag.has_filter": bool(filter),
+            },
+        ):
+            query_embedding = self.embedding_model.embed(query)
+            results = self.store.search_passages(query_embedding, top_k=top_k, filter=filter)
+            return [r["entity"]["text"] for r in results]

@@ -14,6 +14,7 @@ from tqdm import tqdm
 from vector_graph_rag.config import Settings, get_settings
 from vector_graph_rag.llm.cache import LLMCache, get_llm_cache
 from vector_graph_rag.models import Document, Triplet
+from vector_graph_rag.observability import start_span
 
 logger = logging.getLogger(__name__)
 
@@ -203,8 +204,17 @@ class TripletExtractor:
         if not text or not text.strip():
             return []
 
-        response = self._call_llm(text)
-        return self._parse_response(response)
+        with start_span(
+            "vgrag.extract_triplets",
+            {
+                "vgrag.llm_model": self.model,
+                "vgrag.text_length": len(text),
+                "vgrag.use_llm_cache": self.use_cache,
+            },
+        ):
+            response = self._call_llm(text)
+            triplets = self._parse_response(response)
+            return triplets
 
     def extract_from_documents(
         self,
@@ -221,14 +231,22 @@ class TripletExtractor:
         Returns:
             Documents with extracted triplets stored in metadata["triplets"].
         """
-        iterator = tqdm(documents, desc="Extracting triplets") if show_progress else documents
+        with start_span(
+            "vgrag.extract_triplets.batch",
+            {
+                "vgrag.llm_model": self.model,
+                "vgrag.document_count": len(documents),
+                "vgrag.use_llm_cache": self.use_cache,
+            },
+        ):
+            iterator = tqdm(documents, desc="Extracting triplets") if show_progress else documents
 
-        for doc in iterator:
-            triplets = self.extract(doc.page_content)
-            # Store triplets as list of [subject, predicate, object] in metadata
-            doc.metadata["triplets"] = [[t.subject, t.predicate, t.object] for t in triplets]
+            for doc in iterator:
+                triplets = self.extract(doc.page_content)
+                # Store triplets as list of [subject, predicate, object] in metadata
+                doc.metadata["triplets"] = [[t.subject, t.predicate, t.object] for t in triplets]
 
-        return documents
+            return documents
 
 
 class EntityExtractor:
@@ -331,45 +349,54 @@ class EntityExtractor:
         Returns:
             List of entity strings.
         """
-        # Check TSV cache first (HippoRAG format)
-        if question in self.ner_tsv_cache:
-            entities = self.ner_tsv_cache[question]
-            return [processing_phrases(str(e)) for e in entities if e]
+        with start_span(
+            "vgrag.extract_query_entities",
+            {
+                "vgrag.llm_model": self.model,
+                "vgrag.question_length": len(question),
+                "vgrag.use_llm_cache": self.use_cache,
+                "vgrag.has_ner_tsv_cache": bool(self.ner_tsv_cache),
+            },
+        ):
+            # Check TSV cache first (HippoRAG format)
+            if question in self.ner_tsv_cache:
+                entities = self.ner_tsv_cache[question]
+                return [processing_phrases(str(e)) for e in entities if e]
 
-        prompt = self._build_prompt(question)
+            prompt = self._build_prompt(question)
 
-        # Check LLM cache
-        if self.cache:
-            cached = self.cache.get(self.model, prompt, temperature=0)
-            if cached is not None:
-                try:
-                    data = json.loads(cached)
-                    entities = data.get("named_entities", data.get("entities", []))
-                    return [processing_phrases(str(e)) for e in entities if e]
-                except (json.JSONDecodeError, KeyError):
-                    pass
+            # Check LLM cache
+            if self.cache:
+                cached = self.cache.get(self.model, prompt, temperature=0)
+                if cached is not None:
+                    try:
+                        data = json.loads(cached)
+                        entities = data.get("named_entities", data.get("entities", []))
+                        return [processing_phrases(str(e)) for e in entities if e]
+                    except (json.JSONDecodeError, KeyError):
+                        pass
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=0,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": NER_SYSTEM_PROMPT},
-                {"role": "user", "content": NER_ONE_SHOT_INPUT},
-                {"role": "assistant", "content": NER_ONE_SHOT_OUTPUT},
-                {"role": "user", "content": NER_TEMPLATE.format(question)},
-            ],
-        )
+            response = self.client.chat.completions.create(
+                model=self.model,
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": NER_SYSTEM_PROMPT},
+                    {"role": "user", "content": NER_ONE_SHOT_INPUT},
+                    {"role": "assistant", "content": NER_ONE_SHOT_OUTPUT},
+                    {"role": "user", "content": NER_TEMPLATE.format(question)},
+                ],
+            )
 
-        content = response.choices[0].message.content or "{}"
+            content = response.choices[0].message.content or "{}"
 
-        # Store in cache
-        if self.cache:
-            self.cache.set(self.model, prompt, content, temperature=0)
+            # Store in cache
+            if self.cache:
+                self.cache.set(self.model, prompt, content, temperature=0)
 
-        try:
-            data = json.loads(content)
-            entities = data.get("named_entities", data.get("entities", []))
-            return [processing_phrases(str(e)) for e in entities if e]
-        except (json.JSONDecodeError, KeyError):
-            return []
+            try:
+                data = json.loads(content)
+                entities = data.get("named_entities", data.get("entities", []))
+                return [processing_phrases(str(e)) for e in entities if e]
+            except (json.JSONDecodeError, KeyError):
+                return []

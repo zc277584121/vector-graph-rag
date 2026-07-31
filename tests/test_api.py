@@ -2,14 +2,39 @@
 
 import os
 import tempfile
+from contextlib import suppress
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from tests.conftest import close_milvus_store
 from vector_graph_rag.api.app import create_app
 from vector_graph_rag.config import Settings
 from vector_graph_rag.graph.graph import Graph
+
+
+def _attach_span_exporter(exporter: InMemorySpanExporter) -> None:
+    """Attach a test exporter to the active OpenTelemetry provider."""
+    processor = SimpleSpanProcessor(exporter)
+    provider = trace.get_tracer_provider()
+    if hasattr(provider, "add_span_processor"):
+        provider.add_span_processor(processor)
+        return
+
+    provider = TracerProvider()
+    provider.add_span_processor(processor)
+    try:
+        trace.set_tracer_provider(provider)
+    except Exception:
+        current_provider = trace.get_tracer_provider()
+        if not hasattr(current_provider, "add_span_processor"):
+            raise
+        current_provider.add_span_processor(processor)
 
 
 @pytest.fixture
@@ -27,8 +52,9 @@ def test_settings():
         collection_prefix="api_test",
     )
 
-    if os.path.exists(temp_uri):
-        os.unlink(temp_uri)
+    for path in [temp_uri, f"{temp_uri}.lock"]:
+        if os.path.exists(path):
+            os.unlink(path)
 
 
 @pytest.fixture
@@ -51,13 +77,26 @@ def app(test_settings, mock_embedding_model):
     graph.create_collections(drop_existing=True)
     application.state.graph_instances["default"] = graph
 
-    return application
+    yield application
+
+    with suppress(Exception):
+        graph.drop_collections()
+    close_milvus_store(graph._store)
 
 
 @pytest.fixture
 def client(app):
     """Create test client."""
     return TestClient(app)
+
+
+@pytest.fixture
+def span_exporter():
+    """Create an in-memory span exporter for API middleware assertions."""
+    exporter = InMemorySpanExporter()
+    _attach_span_exporter(exporter)
+    yield exporter
+    exporter.clear()
 
 
 class TestHealthEndpoint:
@@ -71,6 +110,35 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["status"] == "ok"
         assert "version" in data
+
+
+class TestObservabilityMiddleware:
+    """Tests for API request tracing."""
+
+    def test_request_context_headers_are_added_to_span(self, client, span_exporter):
+        """Test request headers and graph context are attached to API spans."""
+        response = client.get(
+            "/health?graph_name=finance",
+            headers={
+                "x-request-id": "req-api",
+                "x-tenant-id": "tenant-api",
+            },
+        )
+
+        assert response.status_code == 200
+
+        spans = [
+            span for span in span_exporter.get_finished_spans() if span.name == "vgrag.api.request"
+        ]
+        assert spans
+        span = spans[-1]
+        assert span.attributes["vgrag.request_id"] == "req-api"
+        assert span.attributes["vgrag.tenant_id"] == "tenant-api"
+        assert span.attributes["vgrag.graph_name"] == "finance"
+        assert span.attributes["http.request.method"] == "GET"
+        assert span.attributes["http.response.status_code"] == 200
+        assert span.attributes["vgrag.has_request_id"] is True
+        assert span.attributes["vgrag.has_tenant_id"] is True
 
 
 class TestListGraphsEndpoint:

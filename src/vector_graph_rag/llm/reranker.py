@@ -10,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from vector_graph_rag.config import Settings, get_settings
 from vector_graph_rag.llm.cache import LLMCache, get_llm_cache
+from vector_graph_rag.observability import start_span
 
 RERANK_EXAMPLE_1_INPUT = """I will provide you with a set of relationship descriptions from a knowledge graph. Select exactly 5 relationships most useful for answering this multi-hop question.
 
@@ -264,23 +265,32 @@ class LLMReranker:
         if not relation_ids:
             return [], []
 
-        # Format relations
-        relation_descriptions = self._format_relations(relation_ids, relation_texts)
+        with start_span(
+            "vgrag.rerank",
+            {
+                "vgrag.llm_model": self.model,
+                "vgrag.question_length": len(query),
+                "vgrag.candidate_relation_count": len(relation_ids),
+                "vgrag.use_llm_cache": self.use_cache,
+            },
+        ):
+            # Format relations
+            relation_descriptions = self._format_relations(relation_ids, relation_texts)
 
-        # Call LLM
-        response = self._call_llm(query, relation_descriptions)
+            # Call LLM
+            response = self._call_llm(query, relation_descriptions)
 
-        # Parse response
-        valid_ids = set(relation_ids)
-        selected_ids = self._parse_response(response, valid_ids, relation_ids, relation_texts)
+            # Parse response
+            valid_ids = set(relation_ids)
+            selected_ids = self._parse_response(response, valid_ids, relation_ids, relation_texts)
 
-        # No fallback - return whatever LLM selected (same as current project)
+            # No fallback - return whatever LLM selected (same as current project)
 
-        # Get corresponding texts
-        id_to_text = dict(zip(relation_ids, relation_texts))
-        selected_texts = [id_to_text[rid] for rid in selected_ids if rid in id_to_text]
+            # Get corresponding texts
+            id_to_text = dict(zip(relation_ids, relation_texts))
+            selected_texts = [id_to_text[rid] for rid in selected_ids if rid in id_to_text]
 
-        return selected_ids, selected_texts
+            return selected_ids, selected_texts
 
 
 class AnswerGenerator:
@@ -341,31 +351,41 @@ Answer:"""
         Returns:
             Generated answer string.
         """
-        context = "\n\n".join(passages)
-        prompt = self.ANSWER_PROMPT.format(question=query, context=context)
+        with start_span(
+            "vgrag.answer",
+            {
+                "vgrag.llm_model": self.model,
+                "vgrag.question_length": len(query),
+                "vgrag.passage_count": len(passages),
+                "vgrag.context_length": sum(len(passage) for passage in passages),
+                "vgrag.use_llm_cache": self.use_cache,
+            },
+        ):
+            context = "\n\n".join(passages)
+            prompt = self.ANSWER_PROMPT.format(question=query, context=context)
 
-        # Check cache
-        if self.cache:
-            cached = self.cache.get(self.model, prompt, temperature=0)
-            if cached is not None:
-                return cached
+            # Check cache
+            if self.cache:
+                cached = self.cache.get(self.model, prompt, temperature=0)
+                if cached is not None:
+                    return cached
 
-        messages = [{"role": "user", "content": prompt}]
+            messages = [{"role": "user", "content": prompt}]
 
-        # Build API call kwargs - gpt-5 series doesn't support temperature parameter
-        api_kwargs = {
-            "model": self.model,
-            "messages": messages,
-        }
-        if not self.model.startswith("gpt-5"):
-            api_kwargs["temperature"] = 0
+            # Build API call kwargs - gpt-5 series doesn't support temperature parameter
+            api_kwargs = {
+                "model": self.model,
+                "messages": messages,
+            }
+            if not self.model.startswith("gpt-5"):
+                api_kwargs["temperature"] = 0
 
-        response = self.client.chat.completions.create(**api_kwargs)
+            response = self.client.chat.completions.create(**api_kwargs)
 
-        result = response.choices[0].message.content or "I don't know."
+            result = response.choices[0].message.content or "I don't know."
 
-        # Store in cache
-        if self.cache:
-            self.cache.set(self.model, prompt, result, temperature=0)
+            # Store in cache
+            if self.cache:
+                self.cache.set(self.model, prompt, result, temperature=0)
 
-        return result
+            return result

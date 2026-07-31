@@ -8,6 +8,8 @@ from typing import List, Protocol
 from langchain_core.documents import Document
 from pydantic import BaseModel, ConfigDict
 
+from vector_graph_rag.observability import observability_context, start_span
+
 try:
     from markitdown import MarkItDown
 
@@ -69,25 +71,36 @@ class DocumentConverter:
             ConversionResult with Document(s) and any errors
         """
         path = Path(source)
-        if not path.exists():
-            return ConversionResult(documents=[], errors=[f"File not found: {source}"])
-
-        try:
-            result = self.md.convert(str(path))
-
-            doc = Document(
-                page_content=result.text_content,
-                metadata={
-                    "source": str(path),
-                    "source_type": self._get_source_type(path),
-                    "title": getattr(result, "title", None),
+        with observability_context(source=str(path)):
+            with start_span(
+                "vgrag.convert_document",
+                {
+                    "vgrag.parser": "markitdown",
+                    "vgrag.source_type": path.suffix.lower().lstrip("."),
                 },
-            )
+            ):
+                if not path.exists():
+                    return ConversionResult(documents=[], errors=[f"File not found: {source}"])
 
-            return ConversionResult(documents=[doc])
+                try:
+                    result = self.md.convert(str(path))
 
-        except Exception as e:
-            return ConversionResult(documents=[], errors=[f"Failed to convert {source}: {str(e)}"])
+                    doc = Document(
+                        page_content=result.text_content,
+                        metadata={
+                            "source": str(path),
+                            "source_type": self._get_source_type(path),
+                            "title": getattr(result, "title", None),
+                        },
+                    )
+
+                    return ConversionResult(documents=[doc])
+
+                except Exception as e:
+                    return ConversionResult(
+                        documents=[],
+                        errors=[f"Failed to convert {source}: {str(e)}"],
+                    )
 
     def convert_batch(self, sources: List[str]) -> ConversionResult:
         """Convert multiple files."""
