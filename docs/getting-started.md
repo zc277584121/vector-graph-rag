@@ -209,7 +209,7 @@ Use `upsert_documents_by_source()` when a source file, page, or message is creat
 
 For parser and loader workflows, attach the same stable source value to every
 chunk produced from one file, page, or message. See
-[Incremental Updates](incremental-updates.md) for the full source-level CUD and
+[Incremental Updates](guides/incremental-updates.md) for the full source-level CUD and
 retry pattern.
 
 ```python
@@ -258,7 +258,7 @@ with observability_context(
     rag.upsert_documents_by_source(chunks, source="file-123")
 ```
 
-See [Observability](observability.md) for setup, span coverage, and data-safety notes.
+See [Observability](guides/observability.md) for setup, span coverage, and data-safety notes.
 
 ## Querying
 
@@ -299,12 +299,12 @@ uv run uvicorn vector_graph_rag.api.app:app --host 0.0.0.0 --port 8000
 
 Interactive docs available at `http://localhost:8000/docs`.
 
-See the [REST API Reference](rest-api.md) for full endpoint documentation.
+See the [REST API Reference](reference/rest-api.md) for full endpoint documentation.
 
 ## Next Steps
 
-- **[How It Works](how-it-works.md)** — Understand the indexing and query pipelines
-- **[Design Philosophy](design-philosophy.md)** — Why pure vector search instead of graph databases
-- **[Python API](python-api.md)** — Complete API reference with all parameters
+- **[How It Works](architecture/how-it-works.md)** — Understand the indexing and query pipelines
+- **[Design Philosophy](architecture/design-philosophy.md)** — Why pure vector search instead of graph databases
+- **[Python API](reference/python-api.md)** — Complete API reference with all parameters
 - **[Use Cases](use-cases.md)** — Domain-specific examples and best practices
-- **[Frontend](frontend.md)** — Interactive graph visualization
+- **[Frontend](guides/frontend.md)** — Interactive graph visualization

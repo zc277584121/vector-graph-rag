@@ -123,7 +123,7 @@ argument. The method replaces only that source's chunks and graph references.
 Source-level writes are not transactionally atomic, but the same upsert/delete
 operation can be retried after an interruption to converge the source back to a
 consistent state.
-See the [Incremental Updates guide](docs/incremental-updates.md) for parser
+See the [Incremental Updates guide](docs/guides/incremental-updates.md) for parser
 integration, source key design, and retry recommendations.
 
 ```python
@@ -183,7 +183,7 @@ with observability_context(
 
 The built-in spans avoid document text, prompts, query text, generated answers,
 filters, and full URLs by default. See the
-[Observability guide](docs/observability.md) for setup details.
+[Observability guide](docs/guides/observability.md) for setup details.
 
 </details>
 

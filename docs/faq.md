@@ -61,7 +61,7 @@ Frequently asked questions about Vector Graph RAG — covering when to use it, c
     rag.delete_documents_by_source("file-123")
     ```
 
-    Incremental updates replace only the chunks and graph references for that source value. They are not transactionally atomic. If a write is interrupted, rerun the same source operation to converge the source back to a consistent state. See [Incremental Updates](incremental-updates.md) for the full parser, CUD, and retry pattern.
+    Incremental updates replace only the chunks and graph references for that source value. They are not transactionally atomic. If a write is interrupted, rerun the same source operation to converge the source back to a consistent state. See [Incremental Updates](guides/incremental-updates.md) for the full parser, CUD, and retry pattern.
 
 ??? note "Can I use local/open-source LLMs?"
     Yes. Vector Graph RAG uses the OpenAI-compatible API format, so any LLM that exposes an OpenAI-compatible endpoint will work. This includes local models served via [Ollama](https://ollama.com/), [vLLM](https://github.com/vllm-project/vllm), [LM Studio](https://lmstudio.ai/), or any other OpenAI-compatible server. You can configure the base URL and model name when initializing the RAG instance. Keep in mind that triplet extraction and reranking quality depend heavily on the LLM's capability — weaker models may produce incomplete or inaccurate triplets, which directly affects retrieval quality. For best results, use a model with strong instruction-following and reasoning abilities.

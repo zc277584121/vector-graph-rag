@@ -39,15 +39,20 @@ extra_css:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
-  - Incremental Updates: incremental-updates.md
-  - Observability: observability.md
+  - Guides:
+    - Overview: guides/index.md
+    - Document Import: guides/document-import.md
+    - Incremental Updates: guides/incremental-updates.md
+    - Observability: guides/observability.md
+    - Embedding Providers: guides/embedding-providers.md
+    - Multi-Tenancy: guides/multi-tenancy.md
+    - Frontend Visualization: guides/frontend.md
   - Architecture:
-    - How It Works: how-it-works.md
-    - Design Philosophy: design-philosophy.md
+    - How It Works: architecture/how-it-works.md
+    - Design Philosophy: architecture/design-philosophy.md
   - API Reference:
-    - Python API: python-api.md
-    - REST API: rest-api.md
-  - Frontend: frontend.md
+    - Python API: reference/python-api.md
+    - REST API: reference/rest-api.md
   - Evaluation: evaluation.md
   - Use Cases: use-cases.md
   - FAQ: faq.md
