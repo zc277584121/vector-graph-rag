@@ -232,7 +232,7 @@ def start_span(
 
 If OpenTelemetry is not installed, `start_span()` yields `None` and performs no tracing work.
 
-Vector Graph RAG does not record document text, prompt text, query text, generated answers, filters, or full URLs as span attributes by default. See [Observability](observability.md) for setup and span coverage.
+Vector Graph RAG does not record document text, prompt text, query text, generated answers, filters, or full URLs as span attributes by default. See [Observability](../guides/observability.md) for setup and span coverage.
 
 ### Methods
 
@@ -473,7 +473,7 @@ Source-level writes are not transactionally atomic. If an upsert fails during th
 The method accepts exactly one source per call. If `source` is not provided and the documents contain multiple `metadata[source_field]` values, it raises `ValueError`.
 
 For end-to-end parser and loader examples, see
-[Incremental Updates](incremental-updates.md).
+[Incremental Updates](../guides/incremental-updates.md).
 
 ```python
 from langchain_core.documents import Document

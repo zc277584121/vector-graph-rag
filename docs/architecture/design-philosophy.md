@@ -250,7 +250,7 @@ flowchart TB
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
 > [!INFO]
-> Recall@5 on standard multi-hop QA benchmarks. Vector Graph RAG achieves the highest average score while using fewer LLM calls and no graph database. See [Evaluation](evaluation.md) for methodology details.
+> Recall@5 on standard multi-hop QA benchmarks. Vector Graph RAG achieves the highest average score while using fewer LLM calls and no graph database. See [Evaluation](../evaluation.md) for methodology details.
 
 ### Key Differentiators
 
