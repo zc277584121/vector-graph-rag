@@ -239,7 +239,7 @@ VGRAG_MILVUS_URI=http://localhost:19530
 
 </details>
 
-> 📖 Full Python API reference → [Python API docs](https://zilliztech.github.io/vector-graph-rag/python-api/)
+> 📖 Full Python API reference → [Python API docs](https://zilliztech.github.io/vector-graph-rag/reference/python-api/)
 
 ## 🔬 How It Works
 
@@ -352,7 +352,7 @@ cd frontend && npm install && npm run dev
 
 See API docs at `http://localhost:8000/docs` after starting the server.
 
-> 📖 Full endpoint reference → [REST API docs](https://zilliztech.github.io/vector-graph-rag/rest-api/) · [Frontend guide](https://zilliztech.github.io/vector-graph-rag/frontend/)
+> 📖 Full endpoint reference → [REST API docs](https://zilliztech.github.io/vector-graph-rag/reference/rest-api/) · [Frontend guide](https://zilliztech.github.io/vector-graph-rag/guides/frontend/)
 
 ## 📚 Links
 
