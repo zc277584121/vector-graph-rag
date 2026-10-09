@@ -1052,7 +1052,7 @@ for i, passage in enumerate(result.passages):
 
 ## Jev reranker settings
 
-Pass `Settings(reranker_provider="jev", jev_model="jev-1.13.0", jev_threshold=0.5)` to `VectorGraphRAG(settings=...)`. See [Relation Reranking](../guides/reranking.md) for credentials, batching, failures and ordering semantics.
+Use `VectorGraphRAG(reranker_model="jev")` for two-stage retrieval, or set `reranker_model="jev-latest"` to follow the official stable alias. See [Models and Reranking](../guides/reranking.md) for credentials, batching, failures and ordering semantics.
 
 ## Task-specific models
 

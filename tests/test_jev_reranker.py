@@ -191,3 +191,14 @@ def test_missing_key_and_invalid_configuration():
     ):
         with pytest.raises(ValueError):
             Settings(**kwargs)
+
+
+@pytest.mark.parametrize("alias", ["jev-latest", "jev-preview"])
+def test_moving_alias_is_sent_unchanged_and_bypasses_cache(alias):
+    ranker = JevReranker(Settings(reranker_model=alias, jev_api_key="test", use_llm_cache=True))
+    assert ranker._cache is None
+    assert ranker.build_requests("q", ["r"], ["relation"])[0]["model"] == alias
+    assert ranker.build_passage_request("q", ["passage"])["model"] == alias
+    # Official aliases resolve to a concrete model in the response.
+    response = {"model": "jev-1.13.0", "answers": {"rr": {"type": "noul", "noul": 0.8}}}
+    assert ranker._validate_response({"questions": {"rr": {}}}, response) == {"rr": 0.8}

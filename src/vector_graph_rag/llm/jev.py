@@ -57,7 +57,9 @@ class JevReranker:
 
         self._httpx = httpx
         self._encoding = tiktoken.get_encoding("cl100k_base")
-        self._cache = get_llm_cache() if self.settings.use_llm_cache else None
+        # Moving aliases must not reuse results produced by an older model release.
+        moving_alias = self.connection.model in {"jev-latest", "jev-preview"}
+        self._cache = get_llm_cache() if self.settings.use_llm_cache and not moving_alias else None
 
     def _tokens(self, value: object) -> int:
         return len(
