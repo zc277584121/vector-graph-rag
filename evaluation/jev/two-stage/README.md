@@ -1,5 +1,7 @@
 # Two-stage Jev: full MuSiQue and 2Wiki evaluation
 
+October 2026 — expanding on the initial Jev evaluation from September 2026.
+
 Jev first ranks candidate relations, then ranks the passages reached through those relations together with direct vector-search candidates. This evaluation covers all 1,000 questions in each dataset. Recall@5 is reported in percent; the average weights each dataset equally.
 
 | Method | MuSiQue | 2Wiki | Average |

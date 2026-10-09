@@ -1,5 +1,7 @@
 # Jev retrieval evaluation
 
+Jev evaluation began in September 2026; the full two-stage results below were added in October 2026.
+
 ## Two-stage Jev reaches the quality–latency Pareto frontier
 
 Across **MuSiQue and 2Wiki, 1,000 questions each**, two-stage Jev achieves **86.07% average Recall@5**: the highest retrieval quality among the compared methods. It reaches **76.78% on MuSiQue** and **95.35% on 2Wiki**, improving on both generative reranker baselines in each dataset.

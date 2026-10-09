@@ -16,7 +16,7 @@ Vector Graph RAG is evaluated on three standard multi-hop QA benchmarks used in 
 
 ## Historical Results
 
-The original three-dataset results are shown below. The [latest two-stage Jev evaluation](#jev-reranker-evaluation) builds on these results with higher recall on MuSiQue and 2Wiki and corrected relation-to-passage ordering. HippoRAG 2 resampled HotpotQA, so that historical column and the three-dataset averages use different question samples.
+These are the original three-dataset results, published before Jev was introduced into the project in September 2026.[^hotpot-sampling] The [latest two-stage Jev evaluation](#jev-reranker-evaluation) builds on this work with higher recall on MuSiQue and 2Wiki.
 
 ### Recall@5 vs. Naive RAG
 
@@ -87,6 +87,8 @@ See [`evaluation/README.md`](https://github.com/zilliztech/vector-graph-rag/blob
 
 ## Jev Reranker Evaluation
 
+We began evaluating Jev in September 2026, following its availability, and expanded to the full two-stage evaluation below in October 2026.
+
 ### Reaching the quality–latency Pareto frontier
 
 **Two-stage Jev achieves the highest Recall@5 among the compared methods on both datasets**, averaging **86.07%** across **MuSiQue and 2Wiki, 1,000 questions each**. Under the reference latency estimates, it reaches the quality–latency Pareto frontier with **3.13 seconds of additional model-call time**.
@@ -115,3 +117,5 @@ On the plotted Pareto frontier, no alternative offers both at least the same rec
 The horizontal axis excludes embedding, retrieval and answer generation. Jev uses recorded mean request durations; generative-model points use estimated range midpoints. The dotted Pareto frontier is conditional on those estimates. Naive RAG adds no judgment call, hence zero additional time.
 
 See the [complete evaluation and reproduction instructions](https://github.com/zilliztech/vector-graph-rag/blob/main/evaluation/jev/two-stage/README.md) for the dataset checks, cached GPT replay, one historical 2Wiki fallback row, score normalization and timing sample sizes. Enable the implementation through the [reranking guide](guides/reranking.md).
+
+[^hotpot-sampling]: The HippoRAG authors resampled HotpotQA between HippoRAG and HippoRAG 2, so the historical HotpotQA results use different question samples. The original three-dataset results are retained for reference. This does not affect the new Jev comparison, which uses MuSiQue and 2Wiki only.

@@ -280,7 +280,7 @@ Evaluated on three multi-hop QA benchmarks (Recall@5):
 | HippoRAG 2² | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
-HippoRAG 2 uses a different HotpotQA question sample in this historical comparison.
+Historical results from before the September 2026 Jev integration.[^hotpot-sampling]
 
 ¹ [HippoRAG (NeurIPS 2024)](https://arxiv.org/abs/2405.14831)  ² [HippoRAG 2 (2025)](https://arxiv.org/abs/2502.14802)
 
@@ -379,3 +379,5 @@ Bug reports, feature requests, and pull requests are welcome! For questions and 
 ## 📄 License
 
 [MIT](LICENSE)
+
+[^hotpot-sampling]: The HippoRAG authors resampled HotpotQA between HippoRAG and HippoRAG 2, so the historical HotpotQA results use different question samples. The original three-dataset results are retained for reference. This does not affect the new Jev comparison, which uses MuSiQue and 2Wiki only.
