@@ -1053,3 +1053,7 @@ for i, passage in enumerate(result.passages):
 ## Jev reranker settings
 
 Pass `Settings(reranker_provider="jev", jev_model="jev-1.13.0", jev_threshold=0.5)` to `VectorGraphRAG(settings=...)`. See [Relation Reranking](../guides/reranking.md) for credentials, batching, failures and ordering semantics.
+
+## Task-specific models
+
+`VectorGraphRAG` and `create_rag` accept `extractor_model`, `reranker_model`, and `answer_model`, each a model name or exported `ModelConfig(model=..., base_url=..., api_key=...)`. Omitted tasks inherit `llm_model`. See [models and reranking](../guides/reranking.md) for precedence, credentials and compatibility.

@@ -9,7 +9,7 @@ import warnings
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
-from vector_graph_rag.config import Settings
+from vector_graph_rag.config import ModelSpec, Settings
 from vector_graph_rag.graph.builder import GraphBuilder
 from vector_graph_rag.graph.knowledge_graph import SubGraph
 from vector_graph_rag.graph.retriever import GraphRetriever
@@ -74,11 +74,15 @@ class VectorGraphRAG:
         milvus_db: Optional[str] = None,
         collection_prefix: Optional[str] = None,
         openai_api_key: Optional[str] = None,
-        llm_model: Optional[str] = None,
+        llm_model: Optional[ModelSpec] = None,
         embedding_provider: Optional[str] = None,
         embedding_model: Optional[str] = None,
         embedding_api_key: Optional[str] = None,
         embedding_base_url: Optional[str] = None,
+        extractor_model: Optional[ModelSpec] = None,
+        reranker_model: Optional[ModelSpec] = None,
+        answer_model: Optional[ModelSpec] = None,
+        openai_base_url: Optional[str] = None,
     ):
         """
         Initialize Vector Graph RAG.
@@ -90,7 +94,11 @@ class VectorGraphRAG:
             milvus_db: Milvus database name. Defaults to None (use server default).
             collection_prefix: Prefix for collection names (e.g., graph/dataset name).
             openai_api_key: OpenAI API key. Uses environment variable if not provided.
-            llm_model: LLM model name. Defaults to "gpt-4o-mini".
+            llm_model: Default generative model name or ModelConfig.
+            extractor_model: Override for document triplets and query entities.
+            reranker_model: Override for reranking; Jev names select two stages.
+            answer_model: Override for final answer generation.
+            openai_base_url: Shared OpenAI-compatible endpoint.
             embedding_provider: Embedding provider name (e.g., "openai", "huggingface",
                 "ollama", "jina").
             embedding_model: Embedding model name.
@@ -146,10 +154,22 @@ class VectorGraphRAG:
             if embedding_base_url:
                 settings_kwargs["embedding_base_url"] = embedding_base_url
 
+            for name, value in (
+                ("extractor_model", extractor_model),
+                ("reranker_model", reranker_model),
+                ("answer_model", answer_model),
+                ("openai_base_url", openai_base_url),
+            ):
+                if value is not None:
+                    settings_kwargs[name] = value
             self.settings = Settings(**settings_kwargs)
 
         # Validate settings
-        self.settings.validate_settings()
+        # Resolve task connections before constructing clients or opening the database.
+        self.settings.for_task("extractor")
+        self.settings.for_task("answer")
+        if not self.settings.uses_jev:
+            self.settings.for_task("reranker")
 
         # Initialize components
         self._embedding_model = EmbeddingModel(settings=self.settings)
@@ -159,7 +179,7 @@ class VectorGraphRAG:
         )
         self._graph_builder = GraphBuilder(settings=self.settings)
         self._triplet_extractor = TripletExtractor(settings=self.settings)
-        if self.settings.reranker_provider == "jev":
+        if self.settings.uses_jev:
             from vector_graph_rag.llm.jev import JevReranker
 
             self._reranker = JevReranker(settings=self.settings)
@@ -736,6 +756,7 @@ class VectorGraphRAG:
         self,
         relation_ids: List[str],
         filter: Optional[str] = None,
+        round_robin: bool = False,
     ) -> tuple[List[str], List[str]]:
         """
         Get passages associated with given relations.
@@ -763,13 +784,17 @@ class VectorGraphRAG:
             relations_by_id = {rel["id"]: rel for rel in relation_data}
             relation_data = [relations_by_id[rid] for rid in relation_ids if rid in relations_by_id]
 
-            passage_ids: List[str] = []
-            seen_ids: set = set()
-            for rel in relation_data:
-                for pid in rel.get("passage_ids", []):
-                    if pid not in seen_ids:
-                        seen_ids.add(pid)
-                        passage_ids.append(pid)
+            lists = [rel.get("passage_ids", []) for rel in relation_data]
+            if round_robin:
+                ordered_ids = (
+                    ids[i]
+                    for i in range(max(map(len, lists), default=0))
+                    for ids in lists
+                    if i < len(ids)
+                )
+            else:
+                ordered_ids = (pid for ids in lists for pid in ids)
+            passage_ids = list(dict.fromkeys(ordered_ids))
 
             if not passage_ids:
                 return [], []
@@ -1368,6 +1393,14 @@ class VectorGraphRAG:
 
             return self.rebuild_documents(docs, extract_triplets=False, show_progress=show_progress)
 
+    def _jev_passages(self, question, relation_ids, retriever, top_k, filter):
+        from vector_graph_rag.llm.jev import merge_passage_candidates
+
+        _, graph = self._get_passages_from_relations(relation_ids, filter=filter, round_robin=True)
+        dense = retriever.retrieve_passages_naive(question, top_k=10, filter=filter)
+        candidates = merge_passage_candidates(graph, dense)
+        return self._reranker.rerank_passages(question, candidates)[:top_k]
+
     def query(
         self,
         question: str,
@@ -1460,19 +1493,13 @@ class VectorGraphRAG:
                 reranked_ids = candidate_ids[: self.settings.final_top_k]
                 reranked_texts = candidate_texts[: self.settings.final_top_k]
 
-            # Get passages from reranked relations
-            passage_ids, passages = self._get_passages_from_relations(reranked_ids, filter=filter)
-            if self.settings.reranker_provider == "jev" and use_reranking:
-                # Match retrieve(): retain graph passages first, then fill with vector hits.
-                if len(passages) < self.settings.final_top_k:
-                    for passage in retriever.retrieve_passages_naive(
-                        question, top_k=self.settings.final_top_k, filter=filter
-                    ):
-                        if passage not in passages:
-                            passages.append(passage)
-                        if len(passages) >= self.settings.final_top_k:
-                            break
-            final_passages = passages[: self.settings.final_top_k]
+            if self.settings.uses_jev and use_reranking:
+                final_passages = self._jev_passages(
+                    question, reranked_ids, retriever, self.settings.final_top_k, filter
+                )
+            else:
+                _, passages = self._get_passages_from_relations(reranked_ids, filter=filter)
+                final_passages = passages[: self.settings.final_top_k]
 
             # Generate answer
             answer = self._answer_generator.generate(question, final_passages)
@@ -1598,21 +1625,28 @@ class VectorGraphRAG:
                 reranked_ids = candidate_ids[:top_k]
                 reranked_texts = candidate_texts[:top_k]
 
-            # Get passages from reranked relations
-            passage_ids, passages = self._get_passages_from_relations(reranked_ids, filter=filter)
-
-            if len(passages) < top_k:
-                additional_passages = retriever.retrieve_passages_naive(
-                    question,
-                    top_k=top_k,
-                    filter=filter,
+            if self.settings.uses_jev and use_reranking:
+                final_passages = self._jev_passages(
+                    question, reranked_ids, retriever, top_k, filter
                 )
-                for passage in additional_passages:
-                    if passage not in passages:
-                        passages.append(passage)
-                        if len(passages) >= top_k:
-                            break
-            final_passages = passages[:top_k]
+            else:
+                # Get passages from reranked relations
+                passage_ids, passages = self._get_passages_from_relations(
+                    reranked_ids, filter=filter
+                )
+
+                if len(passages) < top_k:
+                    additional_passages = retriever.retrieve_passages_naive(
+                        question,
+                        top_k=top_k,
+                        filter=filter,
+                    )
+                    for passage in additional_passages:
+                        if passage not in passages:
+                            passages.append(passage)
+                            if len(passages) >= top_k:
+                                break
+                final_passages = passages[:top_k]
 
             return QueryResult(
                 query=question,
@@ -1702,11 +1736,15 @@ def create_rag(
     milvus_db: Optional[str] = None,
     collection_prefix: Optional[str] = None,
     openai_api_key: Optional[str] = None,
-    llm_model: str = "gpt-4o-mini",
+    llm_model: ModelSpec = "gpt-4o-mini",
     embedding_provider: Optional[str] = None,
     embedding_model: Optional[str] = None,
     embedding_api_key: Optional[str] = None,
     embedding_base_url: Optional[str] = None,
+    extractor_model: Optional[ModelSpec] = None,
+    reranker_model: Optional[ModelSpec] = None,
+    answer_model: Optional[ModelSpec] = None,
+    openai_base_url: Optional[str] = None,
 ) -> VectorGraphRAG:
     """
     Factory function to create a VectorGraphRAG instance.
@@ -1751,4 +1789,8 @@ def create_rag(
         embedding_model=effective_embedding_model,
         embedding_api_key=embedding_api_key,
         embedding_base_url=embedding_base_url,
+        extractor_model=extractor_model,
+        reranker_model=reranker_model,
+        answer_model=answer_model,
+        openai_base_url=openai_base_url,
     )

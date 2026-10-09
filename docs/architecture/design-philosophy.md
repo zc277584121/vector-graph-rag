@@ -1,5 +1,7 @@
 # Design Philosophy
 
+> The single-pass descriptions below cover the default generative reranker. Jev uses two-stage relation and passage scoring; see [models and reranking](../guides/reranking.md) for that pipeline and configuration.
+
 Vector Graph RAG is built on a simple but powerful observation: **you do not need a graph database to do Graph RAG**. By encoding entities, relations, and passages as vectors in Milvus, and replacing iterative LLM agents with a single reranking pass, we achieve competitive retrieval quality at a fraction of the operational and computational cost.
 
 This page explains the reasoning behind these choices, the trade-offs involved, and how the system compares to alternative approaches.

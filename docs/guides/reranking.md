@@ -1,48 +1,107 @@
-# Relation reranking
+# Models and reranking
 
-The default reranker uses `Settings.llm_model` (GPT-4o-mini by default). Jev is an optional alternative for scoring candidate relations after graph expansion. Entity/triplet extraction and answer generation continue to use the configured OpenAI-compatible model.
-
-## Enable Jev
-
-```bash
-uv add 'vector-graph-rag[jev]'
-export TYPESAFE_API_KEY='your-typesafe-key'
-export OPENAI_API_KEY='your-openai-key'
-```
+Choose models by task. Existing `llm_model` configurations continue to work: it supplies the default for extraction, reranking and answer generation. A task-specific value overrides only that task.
 
 ```python
 from vector_graph_rag import VectorGraphRAG
-from vector_graph_rag.config import Settings
 
-rag = VectorGraphRAG(settings=Settings(
-    reranker_provider="jev",
-    jev_model="jev-1.13.0",
-    jev_threshold=0.5,
-))
-# Add documents or connect to an existing populated index first.
-result = rag.retrieve("Which city was the founder of this company born in?", top_k=5)
+rag = VectorGraphRAG(
+    llm_model="gpt-4o-mini",
+    reranker_model="jev",
+)
 ```
 
-For an existing application, set `VGRAG_RERANKER_PROVIDER=jev`. Other environment settings are `VGRAG_JEV_MODEL`, `VGRAG_JEV_THRESHOLD`, `VGRAG_JEV_TIMEOUT` (60 seconds), and `VGRAG_JEV_MAX_CONCURRENCY` (3). `VGRAG_JEV_API_KEY` overrides the `TYPESAFE_API_KEY` fallback. The key is stored as a Pydantic secret and is excluded from the settings representation. The optional extra declares `httpx`; no additional model weights are downloaded.
+Jev is included in the base installation; no extra package or model weights are needed. Set `TYPESAFE_API_KEY` for Jev and retain your existing embedding and generation credentials. Until a release containing this change is published, install from the merged source:
 
-## Selection and passage ordering
+```bash
+uv add 'vector-graph-rag @ git+https://github.com/zilliztech/vector-graph-rag.git'
+export TYPESAFE_API_KEY=your-typesafe-key
+export OPENAI_API_KEY=your-generation-key
+```
 
-Each request shares the user question and the full candidate relation table in `state`. Its `questions` map contains one `noul` score request per relation, including the relation text, its ID, and explicit true/false criteria. The criterion accepts facts directly answering the question **and necessary intermediate links in a multi-hop answer**. Shared context does not imply a listwise ranking objective or competition between scores.
+## Separate task models
 
-For example, for a question asking where a company's founder was born, `company → founded by → person` can be a useful intermediate link alongside `person → born in → city`. A relation merely sharing the company's topic is insufficient. The shipped recipe is zero-shot: these examples explain the behavior here, but are not added to the request. The exact evaluated prompt lives in [`llm/jev.py`](https://github.com/zilliztech/vector-graph-rag/blob/main/src/vector_graph_rag/llm/jev.py).
+```python
+rag = VectorGraphRAG(
+    extractor_model="gpt-5-mini",
+    reranker_model="jev-1.13.0",
+    answer_model="gpt-4o-mini",
+)
+```
 
-Scores are sorted descending, with original candidate order breaking ties. All relations with scores **greater than or equal to 0.5** are retained by default; there is no forced top-five relation count. Relations expand into passages in the selected relation order, retaining each passage on its first occurrence. `retrieve()` fills short results with deduplicated vector-search passages, after graph passages; `query()` does the same when Jev reranking is enabled. The final `top_k` limits passages, not relations. Metadata filters apply to both graph expansion into passages and fallback retrieval.
+| Parameter | Role | When omitted |
+|---|---|---|
+| `llm_model` | Shared default generative model | `gpt-4o-mini` |
+| `extractor_model` | Document triplets and query entities | Inherits `llm_model` |
+| `reranker_model` | Relation reranking, plus passage reranking for Jev | Inherits `llm_model` |
+| `answer_model` | Final answer generation | Inherits `llm_model` |
 
-## Batching, caching, and failures
+`reranker_model="gpt-5-mini"` selects generative relation reranking. `jev` and `jev-*` names select the Jev two-stage pipeline; there is no strategy switch. The `jev` alias currently resolves to `jev-1.13.0` (a project recommendation, not an official latest-model alias). Pin the full name for reproducible runs. Jev extraction and answer generation are not supported and are rejected during configuration.
 
-Large question maps are split into token-budgeted requests, each repeating the full shared state. There is no silent truncation of relations or text. The implementation uses `cl100k_base` as a proxy with conservative limits (23k for shared state plus a question, 38k batch budget, and a final 40k payload check). These are implementation safety margins, not claims about Jev's tokenizer or official context window. Oversized inputs raise an error; reduce candidate retrieval limits explicitly if needed.
+`retrieve()` skips answer generation; `query()` generates an answer from the same selected passages. Both still perform query entity extraction. The facade constructs all task clients, so their credentials must be configured even when only retrieval is requested.
 
-At most three requests run concurrently by default. Transient transport failures and selected retryable HTTP statuses receive up to three attempts. Authentication, exhausted credit, missing scores, and invalid scores raise errors rather than masquerading as an empty successful selection. An actual empty selection can still use passage fallback.
+## Custom services and credentials
 
-Validated responses use the existing local response cache when `use_llm_cache=True`. Cache keys include the model, complete state, instructions and criteria; changing only the threshold reuses raw scores. Cache files contain query and relation-derived responses, so apply the same access controls as for the existing response cache.
+Use a model name for the shared connection, or `ModelConfig` for a task-specific OpenAI-compatible service:
 
-## Evaluation and compatibility
+```python
+import os
+from vector_graph_rag import ModelConfig, VectorGraphRAG
 
-See the [evaluation results](../evaluation.md#jev-reranker-evaluation) for the frozen 500-row comparisons and API cost/latency scenarios. Jev is opt-in and the default model prompt is unchanged.
+rag = VectorGraphRAG(
+    llm_model=ModelConfig(
+        model="your-default-model",
+        base_url="https://your-service.example/v1",
+        api_key=os.environ["MY_MODEL_API_KEY"],
+    ),
+    reranker_model="jev",
+    answer_model=ModelConfig(
+        model="your-answer-model",
+        base_url="https://your-answer-service.example/v1",
+        api_key=os.environ["ANSWER_API_KEY"],
+    ),
+)
+```
 
-A relation-to-passage ordering fix applies to **both** rerankers: database ID lookups do not guarantee input order, so fetched relations are restored to the reranker's order before passage expansion. This can change which passages appear in top-k results, even with identical cached model responses. Historical published tables are retained as historical results; new evaluations use the corrected order and are reported separately.
+A string task model inherits the default generation connection. A task object may override its connection; when it specifies a different URL, provide its API key explicitly rather than inheriting a secret for another service. Jev always resolves its own URL and credential, never the generative connection. A Jev `ModelConfig` can specify a custom TypeSafe-compatible base URL and API key; the client appends `/systemone`.
+
+Embedding configuration remains independent (`embedding_provider`, `embedding_model`, `embedding_api_key`, `embedding_base_url`). Legacy `openai_api_key` / `openai_base_url` remain shared defaults for generation and OpenAI embeddings. Changing a task's connection does not redirect embedding requests. Custom generative services must support the chat-completion features used by this project.
+
+## Environment configuration and compatibility
+
+The same fields work through `Settings` and `VGRAG_` environment variables:
+
+```bash
+export VGRAG_LLM_MODEL=gpt-4o-mini
+export VGRAG_RERANKER_MODEL=jev
+export VGRAG_EXTRACTOR_MODEL=gpt-5-mini
+export VGRAG_ANSWER_MODEL=gpt-4o-mini
+```
+
+Task environment values can also be JSON objects with `model`, `base_url` and `api_key`. Avoid putting real credentials in shell history. `ModelConfig.api_key` is redacted in representations and serialization. The legacy OpenAI key field retains its existing behavior.
+
+Existing `reranker_provider="jev"` and `jev_model=...` settings are still accepted and now select two stages. Conflicting old/new provider or model settings raise an error. `jev_threshold` is retained for loading old configurations but is no longer used: relation selection takes the top 64 and document selection follows the final rank. The `[jev]` installation extra remains an empty compatibility alias. Default generative reranking behavior is unchanged.
+
+## Two-stage retrieval
+
+```text
+Expanded relations → Jev scores → top 64 → round-robin source passages
+                                                    ↓
+Direct vector-search top 10 → alternate and deduplicate → at most 16
+                                                    ↓
+                                Jev full-passage scores → final top K
+```
+
+For example, a company-founder relation can lead to a passage identifying the founder, while another passage supplies the founder's birthplace. Relation scoring gathers possible bridges; passage scoring checks their actual supporting text. Dense candidates provide a second route when a useful passage is poorly represented by extracted relations. No RRF or score threshold is applied. Ties preserve input order.
+
+Metadata filters apply to both candidate branches. Passage text is never silently truncated. Requests share context but scores are independent judgments, not a listwise ranking objective. The exact prompts and criteria are in [`llm/jev.py`](https://github.com/zilliztech/vector-graph-rag/blob/main/src/vector_graph_rag/llm/jev.py).
+
+## Batching, caching and errors
+
+Relation questions use the existing token-budgeted batching; each batch repeats the shared graph. The second stage sends at most 16 complete passages. Proxy token limits reject oversized inputs with an error; they do not claim to be the provider's official tokenizer or context limit. Use smaller source chunks when needed. The candidate budget is 16, so a larger requested `top_k` cannot produce more than 16 results.
+
+`VGRAG_JEV_TIMEOUT` defaults to 60 seconds and `VGRAG_JEV_MAX_CONCURRENCY` to 3. Transient transport and retryable status failures receive up to three attempts. Invalid scores, authentication errors and exhausted credit propagate as failures rather than empty successful retrievals. Cache keys include complete prompts and model names; custom endpoints are separated. Cache reads do not represent model latency.
+
+## Evaluation
+
+The [full evaluation](https://github.com/zilliztech/vector-graph-rag/blob/main/evaluation/jev/two-stage/README.md) covers MuSiQue and 2Wiki, 1,000 questions each. It includes cached baseline comparisons, method details and the timing assumptions. Frozen evaluation candidates use historical Contriever graph retrieval plus BGE dense retrieval; a fresh index with a different configuration need not reproduce the exact scores.

@@ -125,7 +125,7 @@ class LLMReranker:
             use_cache: Whether to use LLM response caching (default: from settings).
             cache: Custom cache instance.
         """
-        self.settings = settings or get_settings()
+        self.settings = (settings or get_settings()).for_task("reranker")
         self.settings.validate_settings()
 
         self.model = model or self.settings.llm_model
@@ -174,7 +174,9 @@ class LLMReranker:
 
         # Check cache
         if self.cache:
-            cached = self.cache.get(self.model, cache_key, temperature=0)
+            cached = self.cache.get(
+                self.settings.cache_model_name(self.model), cache_key, temperature=0
+            )
             if cached is not None:
                 return cached
 
@@ -206,7 +208,9 @@ class LLMReranker:
 
         # Store in cache
         if self.cache:
-            self.cache.set(self.model, cache_key, result, temperature=0)
+            self.cache.set(
+                self.settings.cache_model_name(self.model), cache_key, result, temperature=0
+            )
 
         return result
 
@@ -322,7 +326,7 @@ Answer:"""
             use_cache: Whether to use LLM response caching (default: from settings).
             cache: Custom cache instance.
         """
-        self.settings = settings or get_settings()
+        self.settings = (settings or get_settings()).for_task("answer")
         self.settings.validate_settings()
 
         self.model = model or self.settings.llm_model
@@ -366,7 +370,9 @@ Answer:"""
 
             # Check cache
             if self.cache:
-                cached = self.cache.get(self.model, prompt, temperature=0)
+                cached = self.cache.get(
+                    self.settings.cache_model_name(self.model), prompt, temperature=0
+                )
                 if cached is not None:
                     return cached
 
@@ -386,6 +392,8 @@ Answer:"""
 
             # Store in cache
             if self.cache:
-                self.cache.set(self.model, prompt, result, temperature=0)
+                self.cache.set(
+                    self.settings.cache_model_name(self.model), prompt, result, temperature=0
+                )
 
             return result

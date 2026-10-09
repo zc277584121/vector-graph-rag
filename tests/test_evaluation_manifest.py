@@ -76,3 +76,7 @@ def test_manifest_rejects_duplicate_rows_and_empty_selection(tmp_path):
         evaluator().evaluate(sample_manifest=write_manifest(tmp_path, [row, row]))
     with pytest.raises(ValueError, match="No evaluable"):
         evaluator().evaluate(max_samples=0)
+
+
+def test_recall_does_not_count_duplicate_titles_twice():
+    assert evaluation.calculate_recall({"a", "b"}, ["a", "a"], [5]) == {5: 0.5}

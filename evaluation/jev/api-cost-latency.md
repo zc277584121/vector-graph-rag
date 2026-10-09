@@ -1,3 +1,5 @@
+> **Historical scenarios:** these assumptions describe the earlier relation-only experiment. For current two-stage measurements and revised token estimates, see the [current evaluation](two-stage/README.md#latency-and-cost).
+
 # API cost and latency comparison: assumptions and sources
 
 This is an illustrative planning chart, not a controlled benchmark. It compares only the model API portion of online relation filtering/reranking. It excludes embeddings, graph/database operations, indexing, final answer generation, retries, taxes and gateway credit-purchase fees. It does not compare retrieval quality. Latency spans are neither confidence intervals nor guaranteed service bounds. Cost and latency endpoints need not describe the same provider/configuration.

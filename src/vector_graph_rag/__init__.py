@@ -5,7 +5,7 @@ This package provides a simple yet powerful approach to implement Graph RAG
 using only vector similarity search, without requiring a separate graph database.
 """
 
-from vector_graph_rag.config import Settings
+from vector_graph_rag.config import ModelConfig, Settings
 from vector_graph_rag.graph.builder import GraphBuilder
 from vector_graph_rag.graph.graph import Graph
 from vector_graph_rag.graph.knowledge_graph import SubGraph
@@ -23,6 +23,7 @@ __version__ = "0.2.2"
 
 __all__ = [
     "Settings",
+    "ModelConfig",
     "Document",
     "Triplet",
     "Entity",

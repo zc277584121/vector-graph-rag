@@ -1,3 +1,5 @@
+> For the current two-stage Jev results and frozen-score reproduction, see [Jev evaluation](jev/README.md). The earlier three-dataset tables below remain historical; HippoRAG 2 uses a resampled HotpotQA set.
+
 # Evaluation
 
 For the optional Jev reranker, the frozen 500-row comparisons, reproducible summaries and API cost/latency scenarios, see [Jev evaluation](jev/README.md). Its results use corrected relation-to-passage order and do not replace the historical tables below.

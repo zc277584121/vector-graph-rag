@@ -1,5 +1,7 @@
 # How It Works
 
+> The single-pass descriptions below cover the default generative reranker. Jev uses two-stage relation and passage scoring; see [models and reranking](../guides/reranking.md) for that pipeline and configuration.
+
 ## Overview
 
 Vector Graph RAG processes documents and answers questions through two main pipelines: **indexing** (offline) and **querying** (online).

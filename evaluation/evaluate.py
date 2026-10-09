@@ -192,7 +192,7 @@ def calculate_recall(
     """
     recall = {}
     for k in k_list:
-        hits = sum(1 for item in retrieved_items[:k] if item in gold_items)
+        hits = len(set(retrieved_items[:k]) & gold_items)
         recall[k] = hits / len(gold_items) if gold_items else 0.0
     return recall
 
@@ -254,9 +254,10 @@ class VectorGraphRAGEvaluator:
         embedding_model: Optional[str] = None,
         embedding_instruction: Optional[str] = None,
         embedding_instruction_template: Optional[str] = None,
-        reranker_provider: str = "llm",
-        jev_model: str = "jev-1.13.0",
+        reranker_provider: Optional[str] = None,
+        jev_model: Optional[str] = None,
         jev_threshold: float = 0.5,
+        reranker_model: Optional[str] = None,
     ):
         """
         Initialize the evaluator.
@@ -305,8 +306,9 @@ class VectorGraphRAGEvaluator:
         collection_prefix = f"ds_{dataset_name}"
         settings = Settings(
             milvus_uri=self.milvus_uri,
-            reranker_provider=reranker_provider,
-            jev_model=jev_model,
+            **({"reranker_provider": reranker_provider} if reranker_provider is not None else {}),
+            reranker_model=reranker_model,
+            **({"jev_model": jev_model} if jev_model is not None else {}),
             jev_threshold=jev_threshold,
             collection_prefix=collection_prefix,  # Use dataset name as collection prefix
         )
@@ -724,8 +726,9 @@ def main():
         help="Instruction template style (auto-set for BGE models if not specified)",
     )
 
-    parser.add_argument("--reranker-provider", choices=["llm", "jev"], default="llm")
-    parser.add_argument("--jev-model", default="jev-1.13.0")
+    parser.add_argument("--reranker-provider", choices=["llm", "jev"], default=None)
+    parser.add_argument("--reranker-model", help="Model name, e.g. jev-1.13.0 or gpt-5-mini")
+    parser.add_argument("--jev-model", default=None, help="Legacy Jev model override")
     parser.add_argument("--jev-threshold", type=float, default=0.5)
     parser.add_argument("--sample-manifest", help="JSON manifest with dataset row indices, IDs and questions")
     args = parser.parse_args()
@@ -768,6 +771,7 @@ def main():
         llm_model=args.llm_model,
         use_llm_cache=not args.no_llm_cache,
         reranker_provider=args.reranker_provider,
+        reranker_model=args.reranker_model,
         jev_model=args.jev_model,
         jev_threshold=args.jev_threshold,
         embedding_model=args.embedding_model,

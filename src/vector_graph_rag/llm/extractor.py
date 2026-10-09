@@ -117,7 +117,7 @@ class TripletExtractor:
             use_cache: Whether to use LLM response caching.
             cache: Custom cache instance. Uses global cache if not provided.
         """
-        self.settings = settings or get_settings()
+        self.settings = (settings or get_settings()).for_task("extractor")
         self.settings.validate_settings()
 
         self.model = model or self.settings.llm_model
@@ -145,7 +145,9 @@ class TripletExtractor:
 
         # Check cache
         if self.cache:
-            cached = self.cache.get(self.model, prompt, self.temperature)
+            cached = self.cache.get(
+                self.settings.cache_model_name(self.model), prompt, self.temperature
+            )
             if cached is not None:
                 return cached
 
@@ -164,7 +166,9 @@ class TripletExtractor:
 
         # Store in cache
         if self.cache:
-            self.cache.set(self.model, prompt, result, self.temperature)
+            self.cache.set(
+                self.settings.cache_model_name(self.model), prompt, result, self.temperature
+            )
 
         return result
 
@@ -279,7 +283,7 @@ class EntityExtractor:
         """
         import os
 
-        self.settings = settings or get_settings()
+        self.settings = (settings or get_settings()).for_task("extractor")
         self.settings.validate_settings()
 
         self.model = model or self.settings.llm_model
@@ -367,7 +371,9 @@ class EntityExtractor:
 
             # Check LLM cache
             if self.cache:
-                cached = self.cache.get(self.model, prompt, temperature=0)
+                cached = self.cache.get(
+                    self.settings.cache_model_name(self.model), prompt, temperature=0
+                )
                 if cached is not None:
                     try:
                         data = json.loads(cached)
@@ -392,7 +398,9 @@ class EntityExtractor:
 
             # Store in cache
             if self.cache:
-                self.cache.set(self.model, prompt, content, temperature=0)
+                self.cache.set(
+                    self.settings.cache_model_name(self.model), prompt, content, temperature=0
+                )
 
             try:
                 data = json.loads(content)
