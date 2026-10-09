@@ -158,3 +158,7 @@ for ext in ["png", "svg"]:
     fig.savefig(
         P.parents[2] / f"docs/assets/evaluation/quality-latency.{ext}", dpi=320, facecolor="white"
     )
+
+# Normalize generated SVG whitespace for clean source diffs.
+svg = P.parents[2] / "docs/assets/evaluation/quality-latency.svg"
+svg.write_text("\n".join(line.rstrip() for line in svg.read_text().splitlines()) + "\n")
