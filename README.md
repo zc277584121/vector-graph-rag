@@ -294,7 +294,7 @@ Before introducing Jev, we evaluated Vector Graph RAG on three multi-hop QA benc
 
 ![Quality and additional model latency](docs/assets/evaluation/quality-latency.png)
 
-Jev times are measured means; generative-model times are estimates. See [Evaluation Results](evaluation/jev/README.md) for the gains over relation-only Jev and other baselines, timing details and reproduction instructions.
+See [Evaluation Results](evaluation/jev/README.md) for the gains over relation-only Jev and other baselines, timing details and reproduction instructions.
 
 ## 🗄️ Milvus Backend
 
