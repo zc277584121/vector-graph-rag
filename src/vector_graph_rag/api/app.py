@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from vector_graph_rag import VectorGraphRAG, __version__
-from vector_graph_rag.config import Settings, get_settings
+from vector_graph_rag.config import ModelConfig, Settings, get_settings
 from vector_graph_rag.graph.graph import Graph
 from vector_graph_rag.observability import observability_context, set_span_attributes, start_span
 from vector_graph_rag.storage.milvus import MilvusStore
@@ -435,7 +435,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         """
         settings = app.state.settings
         return SettingsResponse(
-            llm_model=settings.llm_model,
+            llm_model=(
+                settings.llm_model.model
+                if isinstance(settings.llm_model, ModelConfig)
+                else settings.llm_model
+            ),
             embedding_provider=settings.embedding_provider,
             embedding_model=settings.embedding_model,
             embedding_dimension=settings.embedding_dimension,
