@@ -4,9 +4,9 @@
 
 # Vector Graph RAG
 
-**Graph RAG with pure vector search** — no graph database needed, single-pass LLM reranking, optimized for knowledge-intensive domains.
+**Graph RAG with pure vector search** — no graph database needed, configurable model reranking, optimized for knowledge-intensive domains.
 
-Use the default model or enable the optional [Jev relation reranker](guides/reranking.md). The [evaluation](evaluation.md#jev-reranker-evaluation) includes same-row retrieval comparisons and documented API cost/latency scenarios.
+Use the default model or enable the [two-stage Jev reranker](guides/reranking.md). The [evaluation](evaluation.md#jev-reranker-evaluation) includes same-row retrieval comparisons and documented API cost/latency scenarios.
 
 ## Why Vector Graph RAG?
 
@@ -47,8 +47,8 @@ Pure vector search with Milvus — no Neo4j, no ArangoDB, no extra infrastructur
 </div>
 <div class="feature-card" markdown>
 
-### :material-lightning-bolt: Single-Pass Reranking
-One LLM reranking call, no iterative agent loops. 2 LLM calls total per query vs 5+ for iterative approaches.
+### :material-lightning-bolt: Configurable Reranking
+Choose single-pass generative reranking or two-stage Jev scoring, without an iterative search loop.
 
 </div>
 <div class="feature-card" markdown>
@@ -66,7 +66,7 @@ Milvus Lite by default — works as a local file, no server setup needed. Just `
 <div class="feature-card" markdown>
 
 ### :material-chart-bar: State-of-the-Art
-87.8% average Recall@5 on standard multi-hop QA benchmarks, competitive with HippoRAG 2.
+87.8% historical average Recall@5 across three multi-hop QA datasets; see the evaluation notes.
 
 </div>
 <div class="feature-card" markdown>
@@ -130,5 +130,15 @@ print(result.answer)
 | HippoRAG 2 | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
+> Historical comparison: HippoRAG 2 uses a resampled HotpotQA question set; that column and the three-dataset average are not fully matched-query comparisons.
+
 !!! note "Benchmark Details"
     Recall@5 on standard multi-hop QA benchmarks. Uses the same pre-extracted triplets as HippoRAG for fair comparison. See [Evaluation](evaluation.md) for full details.
+
+## Two-stage Jev results
+
+On MuSiQue and 2Wiki (1,000 questions each), two-stage Jev reaches **86.07% average Recall@5**. This is a separate evaluation from the historical three-dataset results.
+
+![Quality and latency](assets/evaluation/quality-latency.png)
+
+See [evaluation details](evaluation.md#jev-reranker-evaluation) and [configuration](guides/reranking.md).

@@ -17,7 +17,7 @@
   <a href="https://discord.com/invite/FG6hMJStWu"><img src="https://img.shields.io/badge/Discord-chat-7289da?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
-> 💡 Encode entities and relations as vectors in [Milvus](https://milvus.io/), replace iterative LLM agents with a single reranking pass — achieve state-of-the-art multi-hop retrieval at a fraction of the operational and computational cost.
+> 💡 Encode entities and relations as vectors in [Milvus](https://milvus.io/), retrieve multi-hop evidence with single-pass generative reranking or two-stage Jev scoring, without an iterative search loop.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/1185b651-ed72-4408-9dcd-25a74b12835b" alt="Vector Graph RAG Demo" width="800">
@@ -25,12 +25,12 @@
 
 ## What’s New
 
-- **Optional Jev reranker** — Score and filter graph relations with shared multi-hop context. See the [setup guide](docs/guides/reranking.md), [500-query evaluation](evaluation/jev/README.md), and [API cost/latency assumptions](evaluation/jev/api-cost-latency.md).
+- **Two-stage Jev retrieval** — Enable with `reranker_model="jev"`; no extra installation required. See the [setup guide](docs/guides/reranking.md) and [full MuSiQue / 2Wiki evaluation](evaluation/jev/README.md).
 
 ## ✨ Features
 
 - **No Graph Database Required** — Pure vector search with Milvus, no Neo4j or other graph databases needed
-- **Single-Pass LLM Reranking** — One LLM call to rerank, no iterative agent loops (unlike IRCoT or multi-step reflection)
+- **Configurable Reranking** — Single-pass generative reranking or two-stage Jev relation and passage scoring
 - **Knowledge-Intensive Friendly** — Optimized for domains with dense factual content: legal, finance, medical, literature, etc.
 - **Zero Configuration** — Uses Milvus Lite by default, works out of the box with a single file
 - **Multi-hop Reasoning** — Subgraph expansion enables complex multi-hop question answering
@@ -280,9 +280,19 @@ Evaluated on three multi-hop QA benchmarks (Recall@5):
 | HippoRAG 2² | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
+> Historical comparison: HippoRAG 2 uses a resampled HotpotQA question set; that column and the three-dataset average are not fully matched-query comparisons.
+
 ¹ [HippoRAG (NeurIPS 2024)](https://arxiv.org/abs/2405.14831)  ² [HippoRAG 2 (2025)](https://arxiv.org/abs/2502.14802)
 
 > 📖 Detailed analysis and reproduction steps → [Evaluation](https://zilliztech.github.io/vector-graph-rag/evaluation/)
+
+### Two-stage Jev evaluation
+
+MuSiQue and 2Wiki each contain 1,000 aligned questions. Two-stage Jev achieves **76.78% / 95.35% Recall@5**, averaging **86.07%**. This two-dataset average is separate from the historical three-dataset average above.
+
+![Quality and additional model latency](docs/assets/evaluation/quality-latency.png)
+
+Jev times are measured means; generative-model times are estimates. See [results, comparison basis and reproduction](evaluation/jev/two-stage/README.md).
 
 ## 🗄️ Milvus Backend
 

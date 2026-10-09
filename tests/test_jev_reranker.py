@@ -21,11 +21,14 @@ def response(scores):
     return {"answers": {key: {"type": "noul", "noul": value} for key, value in scores.items()}}
 
 
-def test_threshold_order_ties_and_empty_selection(ranker):
+def test_top_relations_keep_low_scores_and_stable_ties(ranker):
     ranker.score_relations = MagicMock(return_value={"a": 0.5, "b": 0.9, "c": 0.5, "d": 0.49})
-    assert ranker.rerank("q", list("abcd"), list("ABCD")) == (["b", "a", "c"], ["B", "A", "C"])
+    assert ranker.rerank("q", list("abcd"), list("ABCD")) == (
+        ["b", "a", "c", "d"],
+        ["B", "A", "C", "D"],
+    )
     ranker.settings.jev_threshold = 1
-    assert ranker.rerank("q", list("abcd"), list("ABCD")) == ([], [])
+    assert ranker.rerank("q", list("abcd"), list("ABCD"))[0] == ["b", "a", "c", "d"]
 
 
 def test_empty_and_invalid_candidates(ranker):
@@ -89,7 +92,7 @@ def test_http_response_mapping_and_cache_threshold_reuse(ranker, tmp_path):
         assert ranker.rerank("q", ["a", "b"], ["A", "B"])[0] == ["b", "a"]
     ranker.settings.jev_threshold = 0.8
     with patch.object(ranker._httpx, "Client", side_effect=AssertionError("No network expected")):
-        assert ranker.rerank("q", ["a", "b"], ["A", "B"])[0] == ["b"]
+        assert ranker.rerank("q", ["a", "b"], ["A", "B"])[0] == ["b", "a"]
     assert len(calls) == 1
 
 
@@ -125,7 +128,7 @@ def test_provider_selection_keeps_default_and_loads_jev_only_when_selected():
         assert llm.call_count == 1
 
 
-def test_query_jev_fallback_preserves_filter_and_graph_first():
+def test_query_jev_two_stage_preserves_filter():
     rag = object.__new__(VectorGraphRAG)
     rag.settings = Settings(reranker_provider="jev", final_top_k=3)
     retriever = MagicMock()
@@ -152,11 +155,18 @@ def test_query_jev_fallback_preserves_filter_and_graph_first():
         "fallback one",
         "fallback two",
     ]
+    rag._reranker.rerank_passages.side_effect = lambda q, docs: list(reversed(docs))
     rag._answer_generator = MagicMock()
     rag._answer_generator.generate.return_value = "answer"
     query = rag.query("q", filter='tenant == "a"')
-    assert query.retrieved_passages == ["graph evidence", "fallback one", "fallback two"]
-    retriever.retrieve_passages_naive.assert_called_once_with("q", top_k=3, filter='tenant == "a"')
+    assert query.retrieved_passages == ["fallback two", "fallback one", "graph evidence"]
+    rag._get_passages_from_relations.assert_called_once_with(
+        ["r"], filter='tenant == "a"', round_robin=True
+    )
+    retriever.retrieve_passages_naive.assert_called_once_with("q", top_k=10, filter='tenant == "a"')
+    retrieved = rag.retrieve("q", top_k=3, filter='tenant == "a"')
+    assert retrieved.retrieved_passages == query.retrieved_passages
+    rag._answer_generator.generate.assert_called_once()
 
 
 def test_key_environment_precedence_and_redaction(monkeypatch):
@@ -181,3 +191,14 @@ def test_missing_key_and_invalid_configuration():
     ):
         with pytest.raises(ValueError):
             Settings(**kwargs)
+
+
+@pytest.mark.parametrize("alias", ["jev-latest", "jev-preview"])
+def test_moving_alias_is_sent_unchanged_and_bypasses_cache(alias):
+    ranker = JevReranker(Settings(reranker_model=alias, jev_api_key="test", use_llm_cache=True))
+    assert ranker._cache is None
+    assert ranker.build_requests("q", ["r"], ["relation"])[0]["model"] == alias
+    assert ranker.build_passage_request("q", ["passage"])["model"] == alias
+    # Official aliases resolve to a concrete model in the response.
+    response = {"model": "jev-1.13.0", "answers": {"rr": {"type": "noul", "noul": 0.8}}}
+    assert ranker._validate_response({"questions": {"rr": {}}}, response) == {"rr": 0.8}

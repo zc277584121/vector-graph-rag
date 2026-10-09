@@ -6602,6 +6602,7 @@ name = "vector-graph-rag"
 version = "0.2.2"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "langchain-core" },
     { name = "milvus-lite" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -6677,9 +6678,6 @@ hf = [
     { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "transformers" },
 ]
-jev = [
-    { name = "httpx" },
-]
 jina = [
     { name = "httpx" },
 ]
@@ -6732,7 +6730,7 @@ requires-dist = [
     { name = "einops", marker = "extra == 'local'", specifier = ">=0.8.2" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.109.0" },
     { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0" },
-    { name = "httpx", marker = "extra == 'jev'", specifier = ">=0.27" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'jina'", specifier = ">=0.27" },
     { name = "huggingface-hub", marker = "extra == 'onnx'", specifier = ">=0.20" },
     { name = "langchain-core", specifier = ">=0.3.0" },

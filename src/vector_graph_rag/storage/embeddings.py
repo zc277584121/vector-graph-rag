@@ -123,7 +123,7 @@ class EmbeddingModel:
         self.instruction = instruction
         self.instruction_template = instruction_template
 
-        if self.provider_name == "openai":
+        if self.provider_name == "openai" and not self.settings.embedding_api_key:
             self.settings.validate_settings()
 
         api_key = self.settings.embedding_api_key

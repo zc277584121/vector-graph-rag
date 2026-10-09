@@ -2,11 +2,28 @@
 Configuration management for Vector Graph RAG.
 """
 
+import hashlib
 import os
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings
+
+
+class ModelConfig(BaseModel):
+    """A model name with an optional task-specific OpenAI-compatible connection."""
+
+    model: str = Field(min_length=1)
+    base_url: Optional[str] = None
+    api_key: Optional[SecretStr] = Field(default=None, repr=False)
+
+
+ModelSpec = str | ModelConfig
+RECOMMENDED_JEV_MODEL = "jev-1.13.0"
+
+
+def is_jev(model: str) -> bool:
+    return model == "jev" or model.startswith("jev-")
 
 
 class Settings(BaseSettings):
@@ -25,10 +42,94 @@ class Settings(BaseSettings):
     openai_base_url: Optional[str] = Field(default=None, description="Custom OpenAI API base URL")
 
     # Model Settings
-    llm_model: str = Field(
+    llm_model: ModelSpec = Field(
         default="gpt-4o-mini",
         description="LLM model for triplet extraction and reranking",
     )
+    extractor_model: Optional[ModelSpec] = None
+    reranker_model: Optional[ModelSpec] = None
+    answer_model: Optional[ModelSpec] = None
+
+    @field_validator("llm_model", "extractor_model", "reranker_model", "answer_model")
+    @classmethod
+    def nonempty_model(cls, value):
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("Model names must not be empty.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_models(self):
+        for name in ("llm_model", "extractor_model", "answer_model"):
+            spec = getattr(self, name)
+            model = spec.model if isinstance(spec, ModelConfig) else spec
+            if model and is_jev(model):
+                raise ValueError(f"{name} does not support Jev; use reranker_model for Jev.")
+        if self.reranker_model is not None:
+            spec = self.reranker_model
+            name = spec.model if isinstance(spec, ModelConfig) else spec
+            provider = "jev" if is_jev(name) else "llm"
+            if "reranker_provider" in self.model_fields_set and self.reranker_provider != provider:
+                raise ValueError("reranker_model conflicts with reranker_provider.")
+            if provider == "jev" and "jev_model" in self.model_fields_set:
+                if name != "jev" and name != self.jev_model:
+                    raise ValueError("reranker_model conflicts with jev_model.")
+        return self
+
+    @property
+    def uses_jev(self) -> bool:
+        if self.reranker_model is None:
+            return self.reranker_provider == "jev"
+        spec = self.reranker_model
+        return is_jev(spec.model if isinstance(spec, ModelConfig) else spec)
+
+    def task_model(self, task: Literal["extractor", "reranker", "answer"]) -> ModelConfig:
+        """Resolve task overrides without mixing Jev and generative credentials."""
+        spec = getattr(self, task + "_model")
+        if task == "reranker" and self.uses_jev:
+            config = (
+                spec if isinstance(spec, ModelConfig) else ModelConfig(model=spec or self.jev_model)
+            )
+            name = self.jev_model if config.model == "jev" else config.model
+            return ModelConfig(
+                model=name,
+                base_url=config.base_url or "https://api.typesafe.ai/v1",
+                api_key=config.api_key or self.jev_api_key,
+            )
+        default = self.llm_model
+        base = default if isinstance(default, ModelConfig) else ModelConfig(model=default)
+        config = spec if isinstance(spec, ModelConfig) else ModelConfig(model=spec or base.model)
+        # An explicit endpoint must not silently inherit a credential for another service.
+        endpoint = config.base_url or base.base_url or self.openai_base_url
+        inherited_key = base.api_key or self.openai_api_key
+        if base.base_url and base.base_url != self.openai_base_url and not base.api_key:
+            inherited_key = None
+        if config.base_url and config.base_url != (base.base_url or self.openai_base_url):
+            inherited_key = None
+        return ModelConfig(
+            model=config.model, base_url=endpoint, api_key=config.api_key or inherited_key
+        )
+
+    def cache_model_name(self, model: str) -> str:
+        if (
+            not self.openai_base_url
+            or self.openai_base_url.rstrip("/") == "https://api.openai.com/v1"
+        ):
+            return model
+        suffix = hashlib.sha256(self.openai_base_url.rstrip("/").encode()).hexdigest()[:16]
+        return f"{model}-{suffix}"
+
+    def for_task(self, task: Literal["extractor", "reranker", "answer"]) -> "Settings":
+        config = self.task_model(task)
+        if not config.api_key:
+            raise ValueError(f"Configure an API key for {task}_model.")
+        return self.model_copy(
+            update={
+                "llm_model": config.model,
+                "openai_base_url": config.base_url,
+                "openai_api_key": config.api_key.get_secret_value(),
+            }
+        )
+
     embedding_model: str = Field(
         default="text-embedding-3-large",
         description="Embedding model for vector representations (HuggingFace model name or OpenAI model name)",
@@ -124,7 +225,7 @@ class Settings(BaseSettings):
     jev_api_key: Optional[SecretStr] = Field(
         default_factory=lambda: os.getenv("TYPESAFE_API_KEY"), repr=False
     )
-    jev_model: str = "jev-1.13.0"
+    jev_model: str = RECOMMENDED_JEV_MODEL
     jev_threshold: float = Field(default=0.5, ge=0, le=1)
     jev_timeout: float = Field(default=60.0, gt=0)
     jev_max_concurrency: int = Field(default=3, ge=1, le=16)

@@ -1,4 +1,4 @@
-"""Optional Jev relation scoring with shared graph context and threshold selection."""
+"""Two-stage Jev scoring with shared relation and passage context."""
 
 import json
 import math
@@ -24,27 +24,42 @@ CRITERIA = {
 }
 
 
+DOCUMENT_INSTRUCTIONS = (
+    "Would this source excerpt be useful evidence to retrieve for answering the original question? "
+    "It may establish the requested fact or identify an intermediate entity needed to connect other evidence. "
+    "Use the other excerpts as context but require support in THIS excerpt. "
+    "Distinguish relevant identity or relation evidence from incidental name overlap and unrelated attributes. "
+    "Do not assume a complete answer is available. Judge usefulness, not whether this excerpt alone answers everything."
+)
+
+
 class JevReranker:
     """Score each relation independently against shared query/graph context.
 
-    Scores are sorted stably and filtered with an inclusive threshold. No minimum
-    or maximum relation count is imposed. Passage fallback belongs to the RAG layer.
+    Scores are sorted stably; the top 64 relations seed passage candidates.
+    Candidate merging belongs to the RAG layer, followed by passage scoring.
     The token estimator is a conservative proxy, not the provider's tokenizer.
     """
 
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or Settings()
-        if not self.settings.jev_api_key:
+        if not self.settings.uses_jev and self.settings.reranker_model is not None:
+            raise ValueError("JevReranker requires a Jev reranker_model.")
+        resolved = (
+            self.settings
+            if self.settings.uses_jev
+            else self.settings.model_copy(update={"reranker_provider": "jev"})
+        )
+        self.connection = resolved.task_model("reranker")
+        if not self.connection.api_key:
             raise ValueError("Set TYPESAFE_API_KEY or VGRAG_JEV_API_KEY to use Jev.")
-        try:
-            import httpx
-        except ImportError as exc:
-            raise ImportError(
-                "Install the optional dependency: uv add 'vector-graph-rag[jev]'"
-            ) from exc
+        import httpx
+
         self._httpx = httpx
         self._encoding = tiktoken.get_encoding("cl100k_base")
-        self._cache = get_llm_cache() if self.settings.use_llm_cache else None
+        # Moving aliases must not reuse results produced by an older model release.
+        moving_alias = self.connection.model in {"jev-latest", "jev-preview"}
+        self._cache = get_llm_cache() if self.settings.use_llm_cache and not moving_alias else None
 
     def _tokens(self, value: object) -> int:
         return len(
@@ -95,7 +110,7 @@ class JevReranker:
         if current:
             batches.append(current)
         payloads = [
-            {"model": self.settings.jev_model, "state": state, "questions": batch}
+            {"model": self.connection.model, "state": state, "questions": batch}
             for batch in batches
         ]
         if any(self._tokens(payload) >= 40000 for payload in payloads):
@@ -125,7 +140,9 @@ class JevReranker:
     def _request(self, client, payload: dict) -> dict:
         for attempt in range(3):
             try:
-                response = client.post("https://api.typesafe.ai/v1/systemone", json=payload)
+                response = client.post(
+                    self.connection.base_url.rstrip("/") + "/systemone", json=payload
+                )
                 if response.status_code in {429, 500, 502, 503, 504, 529} and attempt < 2:
                     time.sleep(2**attempt)
                     continue
@@ -143,19 +160,25 @@ class JevReranker:
         self, query: str, relation_ids: List[str], relation_texts: List[str]
     ) -> Dict[str, float]:
         """Return all scores; API failures are errors, never empty successful selections."""
-        payloads = self.build_requests(query, relation_ids, relation_texts)
+        scores = self._score_payloads(self.build_requests(query, relation_ids, relation_texts))
+        return {str(rid): scores[f"r{rid}"] for rid in relation_ids}
+
+    def _score_payloads(self, payloads: list) -> Dict[str, float]:
+        """Share validation, retries and caching across both scoring stages."""
         scores = {}
         pending = []
         for payload in payloads:
             key = json.dumps(payload, ensure_ascii=False)
-            cached = self._cache.get(self.settings.jev_model, key) if self._cache else None
+            if self.connection.base_url.rstrip("/") != "https://api.typesafe.ai/v1":
+                key = self.connection.base_url + "\n" + key
+            cached = self._cache.get(self.connection.model, key) if self._cache else None
             if cached is not None:
                 scores.update(self._validate_response(payload, json.loads(cached)))
             else:
                 pending.append((key, payload))
         if pending:
             with self._httpx.Client(
-                headers={"Authorization": "Bearer " + self.settings.jev_api_key.get_secret_value()},
+                headers={"Authorization": "Bearer " + self.connection.api_key.get_secret_value()},
                 timeout=self.settings.jev_timeout,
             ) as client:
                 with ThreadPoolExecutor(max_workers=self.settings.jev_max_concurrency) as pool:
@@ -164,15 +187,61 @@ class JevReranker:
                     for (key, payload), response in zip(pending, responses):
                         scores.update(self._validate_response(payload, response))
                         if self._cache:
-                            self._cache.set(self.settings.jev_model, key, json.dumps(response))
-        return {str(rid): scores[f"r{rid}"] for rid in relation_ids}
+                            self._cache.set(self.connection.model, key, json.dumps(response))
+        return scores
 
     def rerank(
         self, query: str, relation_ids: List[str], relation_texts: List[str]
     ) -> Tuple[List[str], List[str]]:
         scores = self.score_relations(query, relation_ids, relation_texts)
         ordered = sorted(zip(relation_ids, relation_texts), key=lambda pair: -scores[str(pair[0])])
-        selected = [
-            (rid, text) for rid, text in ordered if scores[str(rid)] >= self.settings.jev_threshold
-        ]
+        selected = ordered[:64]
         return [rid for rid, _ in selected], [text for _, text in selected]
+
+    def build_passage_request(self, query: str, passages: List[str]) -> dict:
+        """Build the frozen document-stage prompt without silently truncating text."""
+        if len(passages) > 16:
+            raise ValueError("The two-stage recipe accepts at most 16 candidate passages.")
+        payload = {
+            "model": self.connection.model,
+            "state": {
+                "question": query,
+                "excerpts": {f"d{i}": text for i, text in enumerate(passages)},
+            },
+            "questions": {
+                f"d{i}": {
+                    "type": "noul",
+                    "instructions": DOCUMENT_INSTRUCTIONS + f"\nTarget excerpt: d{i}.",
+                    "criteria": {
+                        "true": "Contains a supported answer fact or a necessary intermediate identity or connection.",
+                        "false": "Irrelevant, wrong entity, unsupported connection, or merely related background.",
+                    },
+                }
+                for i in range(len(passages))
+            },
+        }
+        if self._tokens(payload["state"]) >= 23000 or self._tokens(payload) >= 47000:
+            raise ValueError("Jev passage context is too large; use smaller source chunks.")
+        return payload
+
+    def rerank_passages(self, query: str, passages: List[str]) -> List[str]:
+        if not passages:
+            return []
+        scores = self._score_payloads([self.build_passage_request(query, passages)])
+        order = sorted(range(len(passages)), key=lambda i: -scores[f"d{i}"])
+        return [passages[i] for i in order]
+
+
+def merge_passage_candidates(graph: List[str], dense: List[str]) -> List[str]:
+    """Alternate graph and dense candidates, deduplicate exact text, cap at 16."""
+    dense = dense[:10]
+    result = []
+    seen = set()
+    for i in range(max(len(graph), len(dense))):
+        for source in (graph, dense):
+            if i < len(source) and source[i] not in seen:
+                seen.add(source[i])
+                result.append(source[i])
+                if len(result) == 16:
+                    return result
+    return result

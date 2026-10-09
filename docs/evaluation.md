@@ -19,6 +19,8 @@ Vector Graph RAG is evaluated on three standard multi-hop QA benchmarks used in 
 
 These previously published tables are retained as historical results, before the relation-to-passage ordering correction. The new Jev replay uses corrected ordering and a separately documented sample/retrieval basis; its scores do not overwrite these tables.
 
+> HippoRAG 2 uses a resampled HotpotQA question set. Its HotpotQA column and the three-dataset averages below are descriptive historical comparisons, not fully matched-query comparisons.
+
 ### Recall@5 vs. Naive RAG
 
 ![Recall@5: Naive RAG vs Vector Graph RAG](https://github.com/user-attachments/assets/221a0c8d-a414-4234-ac8b-ba4223aaa2cc)
@@ -48,8 +50,8 @@ These previously published tables are retained as historical results, before the
 [^2]: [From RAG to Memory: Non-Parametric Continual Learning for LLMs (2025)](https://arxiv.org/abs/2502.14802)
 
 !!! note "Analysis"
-    - **Best average performance** (87.8%) among all compared methods
-    - **Ties HippoRAG 2 on HotpotQA** (96.3%) — the most popular multi-hop benchmark
+    - **Historical average Recall@5: 87.8%** across the three datasets
+    - **Historical HotpotQA Recall@5: 96.3%**; the HippoRAG 2 question sample differs
     - **Leads on 2WikiMultiHopQA** (94.1%) — +3.7% over HippoRAG 2, showing stronger cross-document reasoning
     - **Slightly behind HippoRAG 2 on MuSiQue** (73.0% vs 74.7%) — the hardest benchmark with 3–4 hop questions
 
@@ -58,7 +60,7 @@ These previously published tables are retained as historical results, before the
 ## Methodology
 
 !!! important "Fair Comparison"
-    For fair comparison with HippoRAG, we use **the same pre-extracted triplets** from HippoRAG's repository rather than re-extracting them. This ensures the evaluation isolates the **retrieval algorithm improvements** without interference from triplet extraction quality differences.
+    For fair comparison with HippoRAG, we use **the same pre-extracted triplets** from HippoRAG's repository rather than re-extracting them. This reduces variation in extraction for runs sharing these artifacts; it does not make every external system configuration identical.
 
 ### Evaluation Setup
 
@@ -94,25 +96,23 @@ See [`evaluation/README.md`](https://github.com/zilliztech/vector-graph-rag/blob
 
 ## Jev Reranker Evaluation
 
-The optional [Jev reranker](guides/reranking.md) was evaluated against cached model selections on the same 500 rows per dataset, with corrected relation-to-passage ordering and shared passage fallback.
+The two-stage Jev pipeline ranks relations, merges graph and direct-search passage candidates, then scores full passages. The latest evaluation covers **MuSiQue and 2Wiki, 1,000 questions each**. It is a separate recipe and dataset scope from the historical three-dataset average above.
 
-| Method | MuSiQue R@5 / R@10 | HotpotQA R@5 / R@10 |
-|---|---:|---:|
-| Naive RAG · BGE-large-en-v1.5 | 58.05 / 67.60 | 88.60 / 93.20 |
-| Vector Graph RAG + GPT-4o-mini | 64.08 / 74.00 | 90.90 / 96.30 |
-| Vector Graph RAG + GPT-5-mini | 73.00 / 79.00 | 94.50 / 97.30 |
-| Vector Graph RAG + Jev | 68.87 / 76.43 | 93.50 / 97.20 |
+| Method | MuSiQue | 2Wiki | Average |
+|---|---:|---:|---:|
+| Naive RAG · BGE-large-en-v1.5 | 58.03 | 72.73 | 65.38 |
+| Naive RAG · ColBERTv2 | 49.20 | 68.20 | 58.70 |
+| Naive RAG · NV-Embed-v2 | 69.70 | 76.50 | 73.10 |
+| HippoRAG · ColBERTv2 | 51.90 | 89.10 | 70.50 |
+| IRCoT + HippoRAG | 57.60 | 93.90 | 75.75 |
+| HippoRAG 2 | 74.70 | 90.40 | 82.55 |
+| Vector Graph RAG + GPT-4o-mini | 64.41 | 91.35 | 77.88 |
+| Vector Graph RAG + GPT-5-mini | 73.32 | 93.80 | 83.56 |
+| Vector Graph RAG + Jev · relations only | 69.30 | 90.78 | 80.04 |
+| **Vector Graph RAG + Jev · two-stage** | **76.78** | **95.35** | **86.07** |
 
-![Retrieval comparison](assets/evaluation/retrieval-comparison.png)
+![Quality and additional model latency](assets/evaluation/quality-latency.png)
 
-Circles show the same-row replay with 95% query-ID cluster bootstrap intervals. Diamonds are published 1,000-question aggregates with different samples/configurations, so those comparisons are descriptive. HotpotQA's 500 rows include 490 unique IDs. MuSiQue includes prompt-exploration queries; this is not an untouched holdout.
+The horizontal axis excludes embedding, retrieval and answer generation. Jev uses recorded mean request durations; generative-model points use estimated range midpoints. The dotted Pareto frontier is conditional on those estimates. Naive RAG adds no judgment call, hence zero additional time.
 
-The evaluation freezes historical Contriever relation candidates and uses a shared BGE passage index for fallback. It isolates the reranking stage within that replay; it is not a newly rebuilt single-embedding end-to-end benchmark. See the [full protocol, category breakdown and reproducibility scripts](https://github.com/zilliztech/vector-graph-rag/tree/main/evaluation/jev).
-
-### API cost and latency scenarios
-
-![API cost and latency scenarios](assets/evaluation/api-cost-latency.png)
-
-These API-only estimates exclude indexing, embeddings, graph/database work and final answer generation. Jev's cost uses recorded token usage; other costs use hypothetical token counts and public prices. Latency ranges are planning scenarios, not a same-workload benchmark or confidence intervals. They do not establish a universal speed or cost advantage over HippoRAG 2.
-
-The [assumptions and source links](https://github.com/zilliztech/vector-graph-rag/blob/main/evaluation/jev/api-cost-latency.md) specify token counts, provider prices, cache treatment and latency references. The raw scoring records and figure generators accompany the [evaluation artifacts](https://github.com/zilliztech/vector-graph-rag/tree/main/evaluation/jev).
+See the [complete evaluation and reproduction instructions](https://github.com/zilliztech/vector-graph-rag/blob/main/evaluation/jev/two-stage/README.md) for the dataset checks, cached GPT replay, one historical 2Wiki fallback row, score normalization and timing sample sizes. Enable the implementation through the [reranking guide](guides/reranking.md).

@@ -1,0 +1,18 @@
+{
+  "queries_verified": 2000,
+  "datasets": {
+    "musique": 1000,
+    "2wikimultihopqa": 1000
+  },
+  "checks": [
+    "relation request payloads equal frozen zero-shot recipe",
+    "round-robin expansion and alternating candidates equal recorded inputs",
+    "passage request SHA-256 equals original request hash",
+    "stable replay ranking equals recorded top 10"
+  ],
+  "new_model_calls": 0,
+  "implementation_sha256": {
+    "src/vector_graph_rag/llm/jev.py": "97f8be699bcefcfc7ee3f1a6579de55ca7251afe3f5d7027fc52f8684745d6f6",
+    "src/vector_graph_rag/rag.py": "da637666334d5c184f3c7caaa20c8dda1b00e00c27b57332e8b95fc4f0435e9a"
+  }
+}
