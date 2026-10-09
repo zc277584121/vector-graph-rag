@@ -25,7 +25,7 @@
 
 ## What’s New
 
-- **Two-stage Jev retrieval** — Enable with `reranker_model="jev"`; no extra installation required. See the [setup guide](docs/guides/reranking.md) and [full MuSiQue / 2Wiki evaluation](evaluation/jev/README.md).
+- **Two-stage Jev retrieval reaches the quality–latency Pareto frontier.** See the [evaluation results](evaluation/jev/README.md).
 
 ## ✨ Features
 
