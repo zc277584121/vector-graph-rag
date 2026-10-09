@@ -66,7 +66,7 @@ Milvus Lite by default — works as a local file, no server setup needed. Just `
 <div class="feature-card" markdown>
 
 ### :material-chart-bar: State-of-the-Art
-87.8% historical average Recall@5 across three multi-hop QA datasets; see the evaluation notes.
+Two-stage Jev leads the compared baselines on MuSiQue and 2Wiki and reaches the quality–latency Pareto frontier. See the [latest results](evaluation.md#jev-reranker-evaluation).
 
 </div>
 <div class="feature-card" markdown>
@@ -130,15 +130,18 @@ print(result.answer)
 | HippoRAG 2 | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
-> Historical comparison: HippoRAG 2 uses a resampled HotpotQA question set; that column and the three-dataset average are not fully matched-query comparisons.
+Historical results from before the September 2026 Jev integration.[^hotpot-sampling]
 
-!!! note "Benchmark Details"
-    Recall@5 on standard multi-hop QA benchmarks. Uses the same pre-extracted triplets as HippoRAG for fair comparison. See [Evaluation](evaluation.md) for full details.
+These benchmarks use Recall@5 and HippoRAG’s pre-extracted triplets. See [Evaluation](evaluation.md) for details and the latest Jev results.
 
-## Two-stage Jev results
+## Two-stage Jev reaches the quality–latency Pareto frontier
 
-On MuSiQue and 2Wiki (1,000 questions each), two-stage Jev reaches **86.07% average Recall@5**. This is a separate evaluation from the historical three-dataset results.
+**86.07% average Recall@5** on MuSiQue and 2Wiki (1,000 questions each)—the highest among the compared methods. Adding passage reranking to relation selection improves recall by **6.03 percentage points** over relation-only Jev, with recorded mean additional model-call time increasing from **2.28 to 3.13 seconds**.
+
+Under the reference latency estimates, this puts two-stage Jev on the **quality–latency Pareto frontier**. Jev times are measured means; generative-model times are estimates, and neither includes the rest of the search pipeline. This two-dataset evaluation is separate from the historical three-dataset results.
 
 ![Quality and latency](assets/evaluation/quality-latency.png)
 
 See [evaluation details](evaluation.md#jev-reranker-evaluation) and [configuration](guides/reranking.md).
+
+[^hotpot-sampling]: The HippoRAG authors resampled HotpotQA between HippoRAG and HippoRAG 2, so the historical HotpotQA results use different question samples. The original three-dataset results are retained for reference. This does not affect the new Jev comparison, which uses MuSiQue and 2Wiki only.

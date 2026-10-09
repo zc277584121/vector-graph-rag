@@ -10,16 +10,13 @@ Vector Graph RAG is evaluated on three standard multi-hop QA benchmarks used in 
 | **HotpotQA** | Wikipedia-based multi-hop QA | 2 hops | [Paper](https://arxiv.org/abs/1809.09600) |
 | **2WikiMultiHopQA** | Cross-document reasoning over Wikipedia | 2 hops | [Paper](https://arxiv.org/abs/2011.01060) |
 
-!!! info "Evaluation Metric"
-    **Recall@5** — whether the ground-truth supporting passages appear within the top-5 retrieved results. This measures retrieval quality independent of the answer generation step.
+**Recall@5** measures how much of the ground-truth supporting evidence appears in the top five retrieved results, independently of answer generation.
 
 ---
 
 ## Historical Results
 
-These previously published tables are retained as historical results, before the relation-to-passage ordering correction. The new Jev replay uses corrected ordering and a separately documented sample/retrieval basis; its scores do not overwrite these tables.
-
-> HippoRAG 2 uses a resampled HotpotQA question set. Its HotpotQA column and the three-dataset averages below are descriptive historical comparisons, not fully matched-query comparisons.
+These are the original three-dataset results, published before Jev was introduced into the project in September 2026.[^hotpot-sampling] The [latest two-stage Jev evaluation](#jev-reranker-evaluation) builds on this work with higher recall on MuSiQue and 2Wiki.
 
 ### Recall@5 vs. Naive RAG
 
@@ -31,8 +28,7 @@ These previously published tables are retained as historical results, before the
 | **Vector Graph RAG** | **73.0%** | **96.3%** | **94.1%** | **87.8%** |
 | Improvement | +31.4% | +6.1% | +27.7% | +19.6% |
 
-!!! success "Key Takeaway"
-    Vector Graph RAG improves over Naive RAG by **+19.6% on average**, with the largest gains on datasets requiring cross-document reasoning (MuSiQue +31.4%, 2WikiMultiHopQA +27.7%).
+Vector Graph RAG improves over Naive RAG by **19.6% in relative average Recall@5**, with the largest gains on MuSiQue and 2WikiMultiHopQA.
 
 ### Comparison with State-of-the-Art
 
@@ -49,18 +45,13 @@ These previously published tables are retained as historical results, before the
 [^1]: [HippoRAG: Neurobiologically Inspired Long-Term Memory for LLMs (NeurIPS 2024)](https://arxiv.org/abs/2405.14831)
 [^2]: [From RAG to Memory: Non-Parametric Continual Learning for LLMs (2025)](https://arxiv.org/abs/2502.14802)
 
-!!! note "Analysis"
-    - **Historical average Recall@5: 87.8%** across the three datasets
-    - **Historical HotpotQA Recall@5: 96.3%**; the HippoRAG 2 question sample differs
-    - **Leads on 2WikiMultiHopQA** (94.1%) — +3.7% over HippoRAG 2, showing stronger cross-document reasoning
-    - **Slightly behind HippoRAG 2 on MuSiQue** (73.0% vs 74.7%) — the hardest benchmark with 3–4 hop questions
+The historical evaluation reached **87.8% average Recall@5**, leading on 2Wiki while trailing HippoRAG 2 on MuSiQue. **Two-stage Jev now improves both: 76.78% on MuSiQue and 95.35% on 2Wiki**, ahead of the compared baselines on each dataset. See the [Jev results below](#jev-reranker-evaluation) for the full comparison.
 
 ---
 
 ## Methodology
 
-!!! important "Fair Comparison"
-    For fair comparison with HippoRAG, we use **the same pre-extracted triplets** from HippoRAG's repository rather than re-extracting them. This reduces variation in extraction for runs sharing these artifacts; it does not make every external system configuration identical.
+We reuse HippoRAG’s pre-extracted triplets to keep the graph input consistent across these experiments. Retrieval and reranking configurations are described in the corresponding results.
 
 ### Evaluation Setup
 
@@ -96,7 +87,13 @@ See [`evaluation/README.md`](https://github.com/zilliztech/vector-graph-rag/blob
 
 ## Jev Reranker Evaluation
 
-The two-stage Jev pipeline ranks relations, merges graph and direct-search passage candidates, then scores full passages. The latest evaluation covers **MuSiQue and 2Wiki, 1,000 questions each**. It is a separate recipe and dataset scope from the historical three-dataset average above.
+We began evaluating Jev in September 2026, following its availability, and expanded to the full two-stage evaluation below in October 2026.
+
+### Reaching the quality–latency Pareto frontier
+
+**Two-stage Jev achieves the highest Recall@5 among the compared methods on both datasets**, averaging **86.07%** across **MuSiQue and 2Wiki, 1,000 questions each**. Under the reference latency estimates, it reaches the quality–latency Pareto frontier with **3.13 seconds of additional model-call time**.
+
+The pipeline first selects relations, then reranks their source passages together with direct vector-search candidates. The second stage judges full passages, so the final ordering can use evidence beyond the relation text. It is a separate recipe and dataset scope from the historical three-dataset average above.
 
 | Method | MuSiQue | 2Wiki | Average |
 |---|---:|---:|---:|
@@ -113,6 +110,12 @@ The two-stage Jev pipeline ranks relations, merges graph and direct-search passa
 
 ![Quality and additional model latency](assets/evaluation/quality-latency.png)
 
+Compared with relation-only Jev, the second stage adds **6.03 percentage points of average Recall@5** for about **0.85 seconds** more model-call time. It also improves average recall by **2.51 points over Vector Graph RAG + GPT-5-mini** and **3.52 points over HippoRAG 2**.
+
+On the plotted Pareto frontier, no alternative offers both at least the same recall and no more additional model-call time, with a strict improvement in either. Two-stage Jev is the frontier's highest-quality option; direct retrieval and relation-only Jev offer lower-latency choices at lower recall.
+
 The horizontal axis excludes embedding, retrieval and answer generation. Jev uses recorded mean request durations; generative-model points use estimated range midpoints. The dotted Pareto frontier is conditional on those estimates. Naive RAG adds no judgment call, hence zero additional time.
 
 See the [complete evaluation and reproduction instructions](https://github.com/zilliztech/vector-graph-rag/blob/main/evaluation/jev/two-stage/README.md) for the dataset checks, cached GPT replay, one historical 2Wiki fallback row, score normalization and timing sample sizes. Enable the implementation through the [reranking guide](guides/reranking.md).
+
+[^hotpot-sampling]: The HippoRAG authors resampled HotpotQA between HippoRAG and HippoRAG 2, so the historical HotpotQA results use different question samples. The original three-dataset results are retained for reference. This does not affect the new Jev comparison, which uses MuSiQue and 2Wiki only.

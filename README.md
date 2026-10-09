@@ -25,7 +25,7 @@
 
 ## What’s New
 
-- **Two-stage Jev retrieval** — Enable with `reranker_model="jev"`; no extra installation required. See the [setup guide](docs/guides/reranking.md) and [full MuSiQue / 2Wiki evaluation](evaluation/jev/README.md).
+- **Two-stage Jev retrieval reaches the quality–latency Pareto frontier.** See the [evaluation results](evaluation/jev/README.md).
 
 ## ✨ Features
 
@@ -34,7 +34,7 @@
 - **Knowledge-Intensive Friendly** — Optimized for domains with dense factual content: legal, finance, medical, literature, etc.
 - **Zero Configuration** — Uses Milvus Lite by default, works out of the box with a single file
 - **Multi-hop Reasoning** — Subgraph expansion enables complex multi-hop question answering
-- **State-of-the-Art Performance** — 87.8% avg Recall@5 in the [historical multi-hop evaluation](docs/evaluation.md#historical-results), outperforming HippoRAG
+- **State-of-the-Art Performance** — Two-stage Jev leads the compared baselines on MuSiQue and 2Wiki and reaches the quality–latency Pareto frontier. See the [latest results](evaluation/jev/README.md) and [historical three-dataset evaluation](docs/evaluation.md#historical-results).
 
 ## 📦 Installation
 
@@ -267,7 +267,9 @@ Question → Entity Extraction → Vector Search → Subgraph Expansion → LLM 
 
 ## 📊 Evaluation Results
 
-Evaluated on three multi-hop QA benchmarks (Recall@5):
+### Historical evaluation — before September 2026
+
+Before introducing Jev, we evaluated Vector Graph RAG on three multi-hop QA benchmarks (Recall@5):
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/221a0c8d-a414-4234-ac8b-ba4223aaa2cc" alt="Recall@5: Naive RAG vs Vector Graph RAG" width="700">
@@ -280,19 +282,19 @@ Evaluated on three multi-hop QA benchmarks (Recall@5):
 | HippoRAG 2² | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
-> Historical comparison: HippoRAG 2 uses a resampled HotpotQA question set; that column and the three-dataset average are not fully matched-query comparisons.
-
 ¹ [HippoRAG (NeurIPS 2024)](https://arxiv.org/abs/2405.14831)  ² [HippoRAG 2 (2025)](https://arxiv.org/abs/2502.14802)
 
 > 📖 Detailed analysis and reproduction steps → [Evaluation](https://zilliztech.github.io/vector-graph-rag/evaluation/)
 
-### Two-stage Jev evaluation
+### Latest evaluation — October 2026: two-stage Jev
 
-MuSiQue and 2Wiki each contain 1,000 aligned questions. Two-stage Jev achieves **76.78% / 95.35% Recall@5**, averaging **86.07%**. This two-dataset average is separate from the historical three-dataset average above.
+**Two-stage Jev reaches the quality–latency Pareto frontier.**
+
+**86.07% average Recall@5**, the highest among the compared methods, with **3.13 seconds of additional model-call latency**. On MuSiQue and 2Wiki (1,000 questions each), two-stage Jev reaches the Pareto frontier under the reference latency estimates. This two-dataset result is separate from the historical three-dataset average above.
 
 ![Quality and additional model latency](docs/assets/evaluation/quality-latency.png)
 
-Jev times are measured means; generative-model times are estimates. See [results, comparison basis and reproduction](evaluation/jev/two-stage/README.md).
+See [Evaluation Results](evaluation/jev/README.md) for the gains over relation-only Jev and other baselines, timing details and reproduction instructions.
 
 ## 🗄️ Milvus Backend
 

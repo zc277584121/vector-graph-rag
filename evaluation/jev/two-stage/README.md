@@ -1,5 +1,7 @@
 # Two-stage Jev: full MuSiQue and 2Wiki evaluation
 
+October 2026 — expanding on the initial Jev evaluation from September 2026.
+
 Jev first ranks candidate relations, then ranks the passages reached through those relations together with direct vector-search candidates. This evaluation covers all 1,000 questions in each dataset. Recall@5 is reported in percent; the average weights each dataset equally.
 
 | Method | MuSiQue | 2Wiki | Average |
@@ -16,6 +18,16 @@ Jev first ranks candidate relations, then ranks the passages reached through tho
 | **Vector Graph RAG + Jev · two-stage** | **76.78** | **95.35** | **86.07** |
 
 ![Retrieval quality and additional model latency](../../../docs/assets/evaluation/quality-latency.png)
+
+## Reaching the quality–latency Pareto frontier
+
+**Two-stage Jev delivers the highest Recall@5 in this comparison on both datasets.** Its 86.07% average improves on relation-only Jev by **6.03 percentage points**, Vector Graph RAG + GPT-5-mini by **2.51 points**, and HippoRAG 2 by **3.52 points**.
+
+The extra passage-scoring stage raises recorded mean model-call time from **2.28 to 3.13 seconds**—about **0.85 seconds** for the recall gain. Relation selection finds candidate evidence through the graph; passage reranking then evaluates that evidence in its full source context, together with direct-search candidates. This separates finding relevant relations from deciding which passages belong in the final result.
+
+Under the figure's reference latency estimates, two-stage Jev is the **highest-quality point on the Pareto frontier**. No plotted alternative matches or exceeds its recall while taking no more additional model-call time, with a strict improvement in one dimension. This does not mean every application should choose it: direct retrieval adds no judgment calls, and relation-only Jev spends less time at lower recall.
+
+The frontier compares additional model-call latency, not end-to-end search time. Jev values are recorded means and generative-model values are estimates; the [latency section](#latency-and-cost) specifies their scope and assumptions.
 
 ## Frozen recipe
 
