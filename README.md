@@ -267,7 +267,9 @@ Question → Entity Extraction → Vector Search → Subgraph Expansion → LLM 
 
 ## 📊 Evaluation Results
 
-Evaluated on three multi-hop QA benchmarks (Recall@5):
+### Historical evaluation — before September 2026
+
+Before introducing Jev, we evaluated Vector Graph RAG on three multi-hop QA benchmarks (Recall@5):
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/221a0c8d-a414-4234-ac8b-ba4223aaa2cc" alt="Recall@5: Naive RAG vs Vector Graph RAG" width="700">
@@ -280,13 +282,13 @@ Evaluated on three multi-hop QA benchmarks (Recall@5):
 | HippoRAG 2² | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
-Historical results from before the September 2026 Jev integration.
-
 ¹ [HippoRAG (NeurIPS 2024)](https://arxiv.org/abs/2405.14831)  ² [HippoRAG 2 (2025)](https://arxiv.org/abs/2502.14802)
 
 > 📖 Detailed analysis and reproduction steps → [Evaluation](https://zilliztech.github.io/vector-graph-rag/evaluation/)
 
-### Two-stage Jev reaches the quality–latency Pareto frontier
+### Latest evaluation — October 2026: two-stage Jev
+
+**Two-stage Jev reaches the quality–latency Pareto frontier.**
 
 **86.07% average Recall@5**, the highest among the compared methods, with **3.13 seconds of additional model-call latency**. On MuSiQue and 2Wiki (1,000 questions each), two-stage Jev reaches the Pareto frontier under the reference latency estimates. This two-dataset result is separate from the historical three-dataset average above.
 
