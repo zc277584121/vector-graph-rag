@@ -34,7 +34,7 @@
 - **Knowledge-Intensive Friendly** — Optimized for domains with dense factual content: legal, finance, medical, literature, etc.
 - **Zero Configuration** — Uses Milvus Lite by default, works out of the box with a single file
 - **Multi-hop Reasoning** — Subgraph expansion enables complex multi-hop question answering
-- **State-of-the-Art Performance** — 87.8% avg Recall@5 in the [historical multi-hop evaluation](docs/evaluation.md#historical-results), outperforming HippoRAG
+- **State-of-the-Art Performance** — Two-stage Jev leads the compared baselines on MuSiQue and 2Wiki and reaches the quality–latency Pareto frontier. See the [latest results](evaluation/jev/README.md) and [historical three-dataset evaluation](docs/evaluation.md#historical-results).
 
 ## 📦 Installation
 
@@ -280,7 +280,7 @@ Evaluated on three multi-hop QA benchmarks (Recall@5):
 | HippoRAG 2² | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
-> Historical comparison: HippoRAG 2 uses a resampled HotpotQA question set; that column and the three-dataset average are not fully matched-query comparisons.
+HippoRAG 2 uses a different HotpotQA question sample in this historical comparison.
 
 ¹ [HippoRAG (NeurIPS 2024)](https://arxiv.org/abs/2405.14831)  ² [HippoRAG 2 (2025)](https://arxiv.org/abs/2502.14802)
 

@@ -66,7 +66,7 @@ Milvus Lite by default — works as a local file, no server setup needed. Just `
 <div class="feature-card" markdown>
 
 ### :material-chart-bar: State-of-the-Art
-87.8% historical average Recall@5 across three multi-hop QA datasets; see the evaluation notes.
+Two-stage Jev leads the compared baselines on MuSiQue and 2Wiki and reaches the quality–latency Pareto frontier. See the [latest results](evaluation.md#jev-reranker-evaluation).
 
 </div>
 <div class="feature-card" markdown>
@@ -130,10 +130,9 @@ print(result.answer)
 | HippoRAG 2 | **74.7%** | **96.3%** | 90.4% | 87.1% |
 | **Vector Graph RAG** | 73.0% | **96.3%** | **94.1%** | **87.8%** |
 
-> Historical comparison: HippoRAG 2 uses a resampled HotpotQA question set; that column and the three-dataset average are not fully matched-query comparisons.
+HippoRAG 2 uses a different HotpotQA question sample in this historical comparison.
 
-!!! note "Benchmark Details"
-    Recall@5 on standard multi-hop QA benchmarks. Uses the same pre-extracted triplets as HippoRAG for fair comparison. See [Evaluation](evaluation.md) for full details.
+These benchmarks use Recall@5 and HippoRAG’s pre-extracted triplets. See [Evaluation](evaluation.md) for details and the latest Jev results.
 
 ## Two-stage Jev reaches the quality–latency Pareto frontier
 

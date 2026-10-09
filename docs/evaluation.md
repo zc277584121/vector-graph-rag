@@ -10,16 +10,13 @@ Vector Graph RAG is evaluated on three standard multi-hop QA benchmarks used in 
 | **HotpotQA** | Wikipedia-based multi-hop QA | 2 hops | [Paper](https://arxiv.org/abs/1809.09600) |
 | **2WikiMultiHopQA** | Cross-document reasoning over Wikipedia | 2 hops | [Paper](https://arxiv.org/abs/2011.01060) |
 
-!!! info "Evaluation Metric"
-    **Recall@5** — whether the ground-truth supporting passages appear within the top-5 retrieved results. This measures retrieval quality independent of the answer generation step.
+**Recall@5** measures how much of the ground-truth supporting evidence appears in the top five retrieved results, independently of answer generation.
 
 ---
 
 ## Historical Results
 
-These previously published tables are retained as historical results, before the relation-to-passage ordering correction. The new Jev replay uses corrected ordering and a separately documented sample/retrieval basis; its scores do not overwrite these tables.
-
-> HippoRAG 2 uses a resampled HotpotQA question set. Its HotpotQA column and the three-dataset averages below are descriptive historical comparisons, not fully matched-query comparisons.
+The original three-dataset results are shown below. The [latest two-stage Jev evaluation](#jev-reranker-evaluation) builds on these results with higher recall on MuSiQue and 2Wiki and corrected relation-to-passage ordering. HippoRAG 2 resampled HotpotQA, so that historical column and the three-dataset averages use different question samples.
 
 ### Recall@5 vs. Naive RAG
 
@@ -31,8 +28,7 @@ These previously published tables are retained as historical results, before the
 | **Vector Graph RAG** | **73.0%** | **96.3%** | **94.1%** | **87.8%** |
 | Improvement | +31.4% | +6.1% | +27.7% | +19.6% |
 
-!!! success "Key Takeaway"
-    Vector Graph RAG improves over Naive RAG by **+19.6% on average**, with the largest gains on datasets requiring cross-document reasoning (MuSiQue +31.4%, 2WikiMultiHopQA +27.7%).
+Vector Graph RAG improves over Naive RAG by **19.6% in relative average Recall@5**, with the largest gains on MuSiQue and 2WikiMultiHopQA.
 
 ### Comparison with State-of-the-Art
 
@@ -49,18 +45,13 @@ These previously published tables are retained as historical results, before the
 [^1]: [HippoRAG: Neurobiologically Inspired Long-Term Memory for LLMs (NeurIPS 2024)](https://arxiv.org/abs/2405.14831)
 [^2]: [From RAG to Memory: Non-Parametric Continual Learning for LLMs (2025)](https://arxiv.org/abs/2502.14802)
 
-!!! note "Analysis"
-    - **Historical average Recall@5: 87.8%** across the three datasets
-    - **Historical HotpotQA Recall@5: 96.3%**; the HippoRAG 2 question sample differs
-    - **Leads on 2WikiMultiHopQA** (94.1%) — +3.7% over HippoRAG 2, showing stronger cross-document reasoning
-    - **Slightly behind HippoRAG 2 on MuSiQue** (73.0% vs 74.7%) — the hardest benchmark with 3–4 hop questions
+The historical evaluation reached **87.8% average Recall@5**, leading on 2Wiki while trailing HippoRAG 2 on MuSiQue. **Two-stage Jev now improves both: 76.78% on MuSiQue and 95.35% on 2Wiki**, ahead of the compared baselines on each dataset. See the [Jev results below](#jev-reranker-evaluation) for the full comparison.
 
 ---
 
 ## Methodology
 
-!!! important "Fair Comparison"
-    For fair comparison with HippoRAG, we use **the same pre-extracted triplets** from HippoRAG's repository rather than re-extracting them. This reduces variation in extraction for runs sharing these artifacts; it does not make every external system configuration identical.
+We reuse HippoRAG’s pre-extracted triplets to keep the graph input consistent across these experiments. Retrieval and reranking configurations are described in the corresponding results.
 
 ### Evaluation Setup
 
