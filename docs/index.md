@@ -135,9 +135,11 @@ print(result.answer)
 !!! note "Benchmark Details"
     Recall@5 on standard multi-hop QA benchmarks. Uses the same pre-extracted triplets as HippoRAG for fair comparison. See [Evaluation](evaluation.md) for full details.
 
-## Two-stage Jev results
+## Two-stage Jev reaches the quality–latency Pareto frontier
 
-On MuSiQue and 2Wiki (1,000 questions each), two-stage Jev reaches **86.07% average Recall@5**. This is a separate evaluation from the historical three-dataset results.
+**86.07% average Recall@5** on MuSiQue and 2Wiki (1,000 questions each)—the highest among the compared methods. Adding passage reranking to relation selection improves recall by **6.03 percentage points** over relation-only Jev, with recorded mean additional model-call time increasing from **2.28 to 3.13 seconds**.
+
+Under the reference latency estimates, this puts two-stage Jev on the **quality–latency Pareto frontier**. Jev times are measured means; generative-model times are estimates, and neither includes the rest of the search pipeline. This two-dataset evaluation is separate from the historical three-dataset results.
 
 ![Quality and latency](assets/evaluation/quality-latency.png)
 

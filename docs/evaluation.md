@@ -96,7 +96,11 @@ See [`evaluation/README.md`](https://github.com/zilliztech/vector-graph-rag/blob
 
 ## Jev Reranker Evaluation
 
-The two-stage Jev pipeline ranks relations, merges graph and direct-search passage candidates, then scores full passages. The latest evaluation covers **MuSiQue and 2Wiki, 1,000 questions each**. It is a separate recipe and dataset scope from the historical three-dataset average above.
+### Reaching the quality–latency Pareto frontier
+
+**Two-stage Jev achieves the highest Recall@5 among the compared methods on both datasets**, averaging **86.07%** across **MuSiQue and 2Wiki, 1,000 questions each**. Under the reference latency estimates, it reaches the quality–latency Pareto frontier with **3.13 seconds of additional model-call time**.
+
+The pipeline first selects relations, then reranks their source passages together with direct vector-search candidates. The second stage judges full passages, so the final ordering can use evidence beyond the relation text. It is a separate recipe and dataset scope from the historical three-dataset average above.
 
 | Method | MuSiQue | 2Wiki | Average |
 |---|---:|---:|---:|
@@ -112,6 +116,10 @@ The two-stage Jev pipeline ranks relations, merges graph and direct-search passa
 | **Vector Graph RAG + Jev · two-stage** | **76.78** | **95.35** | **86.07** |
 
 ![Quality and additional model latency](assets/evaluation/quality-latency.png)
+
+Compared with relation-only Jev, the second stage adds **6.03 percentage points of average Recall@5** for about **0.85 seconds** more model-call time. It also improves average recall by **2.51 points over Vector Graph RAG + GPT-5-mini** and **3.52 points over HippoRAG 2**.
+
+On the plotted Pareto frontier, no alternative offers both at least the same recall and no more additional model-call time, with a strict improvement in either. Two-stage Jev is the frontier's highest-quality option; direct retrieval and relation-only Jev offer lower-latency choices at lower recall.
 
 The horizontal axis excludes embedding, retrieval and answer generation. Jev uses recorded mean request durations; generative-model points use estimated range midpoints. The dotted Pareto frontier is conditional on those estimates. Naive RAG adds no judgment call, hence zero additional time.
 

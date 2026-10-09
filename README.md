@@ -286,13 +286,13 @@ Evaluated on three multi-hop QA benchmarks (Recall@5):
 
 > 📖 Detailed analysis and reproduction steps → [Evaluation](https://zilliztech.github.io/vector-graph-rag/evaluation/)
 
-### Two-stage Jev evaluation
+### Two-stage Jev reaches the quality–latency Pareto frontier
 
-MuSiQue and 2Wiki each contain 1,000 aligned questions. Two-stage Jev achieves **76.78% / 95.35% Recall@5**, averaging **86.07%**. This two-dataset average is separate from the historical three-dataset average above.
+**86.07% average Recall@5**, the highest among the compared methods, with **3.13 seconds of additional model-call latency**. On MuSiQue and 2Wiki (1,000 questions each), two-stage Jev reaches the Pareto frontier under the reference latency estimates. This two-dataset result is separate from the historical three-dataset average above.
 
 ![Quality and additional model latency](docs/assets/evaluation/quality-latency.png)
 
-Jev times are measured means; generative-model times are estimates. See [results, comparison basis and reproduction](evaluation/jev/two-stage/README.md).
+Jev times are measured means; generative-model times are estimates. See [Evaluation Results](evaluation/jev/README.md) for the gains over relation-only Jev and other baselines, timing details and reproduction instructions.
 
 ## 🗄️ Milvus Backend
 
